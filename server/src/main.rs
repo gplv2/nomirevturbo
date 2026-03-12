@@ -611,7 +611,6 @@ async fn reverse_geocode(
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let data_dir = args.get(1).map(|s| s.as_str()).unwrap_or(".");
-    let bind_addr = args.get(2).map(|s| s.as_str()).unwrap_or("0.0.0.0:3000");
 
     eprintln!("Loading index from {}...", data_dir);
     let index = match Index::load(data_dir) {
@@ -621,12 +620,50 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    eprintln!("Index loaded. Starting server on {}...", bind_addr);
 
     let app = Router::new()
         .route("/reverse", get(reverse_geocode))
         .with_state(index);
 
-    let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    // ACME mode: --domain <domain> [--cache <dir>]
+    let domain_pos = args.iter().position(|a| a == "--domain");
+    if let Some(pos) = domain_pos {
+        let domain = args.get(pos + 1).expect("--domain requires a value").clone();
+        let cache_dir = args.iter().position(|a| a == "--cache")
+            .and_then(|p| args.get(p + 1).cloned())
+            .unwrap_or_else(|| "acme-cache".to_string());
+
+        use rustls_acme::caches::DirCache;
+        use rustls_acme::AcmeConfig;
+        use tokio_stream::StreamExt;
+
+        let mut state = AcmeConfig::new([domain.clone()])
+            .cache(DirCache::new(cache_dir.clone()))
+            .directory_lets_encrypt(true)
+            .state();
+        let acceptor = state.axum_acceptor(state.default_rustls_config());
+
+        tokio::spawn(async move {
+            loop {
+                match state.next().await {
+                    Some(Ok(ok)) => eprintln!("ACME event: {:?}", ok),
+                    Some(Err(err)) => eprintln!("ACME error: {:?}", err),
+                    None => break,
+                }
+            }
+        });
+
+        let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 443));
+        eprintln!("Starting HTTPS server on :443 for {}...", domain);
+        axum_server::bind(addr)
+            .acceptor(acceptor)
+            .serve(app.into_make_service())
+            .await
+            .unwrap();
+    } else {
+        let bind_addr = args.get(2).map(|s| s.as_str()).unwrap_or("0.0.0.0:3000");
+        eprintln!("Starting HTTP server on {}...", bind_addr);
+        let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
+        axum::serve(listener, app).await.unwrap();
+    }
 }
