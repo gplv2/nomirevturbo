@@ -239,6 +239,8 @@ impl Index {
             )
         };
 
+        let cos_lat = lat.to_radians().cos();
+
         let mut best_addr_dist = f64::MAX;
         let mut best_addr: Option<&AddrPoint> = None;
         let mut best_street_dist = f64::MAX;
@@ -253,7 +255,9 @@ impl Index {
             // Addresses
             Self::for_each_entry(&self.addr_entries, offsets.addr, |id| {
                 let point = &all_points[id as usize];
-                let dist = haversine_approx(lat, lng, point.lat as f64, point.lng as f64);
+                let dlat = (point.lat as f64 - lat).to_radians();
+                let dlng = (point.lng as f64 - lng).to_radians();
+                let dist = dist_sq(dlat, dlng, cos_lat);
                 if dist < best_addr_dist {
                     best_addr_dist = dist;
                     best_addr = Some(point);
@@ -272,6 +276,7 @@ impl Index {
                         lat, lng,
                         nodes[i].lat as f64, nodes[i].lng as f64,
                         nodes[i + 1].lat as f64, nodes[i + 1].lng as f64,
+                        cos_lat,
                     );
                     if dist < best_street_dist {
                         best_street_dist = dist;
@@ -291,10 +296,9 @@ impl Index {
 
                 let mut total_len: f64 = 0.0;
                 for i in 0..nodes.len() - 1 {
-                    total_len += haversine_approx(
-                        nodes[i].lat as f64, nodes[i].lng as f64,
-                        nodes[i + 1].lat as f64, nodes[i + 1].lng as f64,
-                    );
+                    let dlat = (nodes[i + 1].lat as f64 - nodes[i].lat as f64).to_radians();
+                    let dlng = (nodes[i + 1].lng as f64 - nodes[i].lng as f64).to_radians();
+                    total_len += dist_sq(dlat, dlng, cos_lat);
                 }
                 if total_len == 0.0 { return; }
 
@@ -303,14 +307,14 @@ impl Index {
                 let mut prev_accumulated: f64 = 0.0;
 
                 for i in 0..nodes.len() - 1 {
-                    let seg_len = haversine_approx(
-                        nodes[i].lat as f64, nodes[i].lng as f64,
-                        nodes[i + 1].lat as f64, nodes[i + 1].lng as f64,
-                    );
+                    let dlat = (nodes[i + 1].lat as f64 - nodes[i].lat as f64).to_radians();
+                    let dlng = (nodes[i + 1].lng as f64 - nodes[i].lng as f64).to_radians();
+                    let seg_len = dist_sq(dlat, dlng, cos_lat);
                     let (dist, seg_t) = point_to_segment_with_t(
                         lat, lng,
                         nodes[i].lat as f64, nodes[i].lng as f64,
                         nodes[i + 1].lat as f64, nodes[i + 1].lng as f64,
+                        cos_lat,
                     );
                     if dist < best_seg_dist {
                         best_seg_dist = dist;
@@ -491,10 +495,7 @@ impl Index {
 
 // --- Geometry helpers ---
 
-fn haversine_approx(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
-    let dlat = (lat2 - lat1).to_radians();
-    let dlng = (lng2 - lng1).to_radians();
-    let cos_lat = ((lat1 + lat2) / 2.0).to_radians().cos();
+fn dist_sq(dlat: f64, dlng: f64, cos_lat: f64) -> f64 {
     dlat * dlat + dlng * dlng * cos_lat * cos_lat
 }
 
@@ -502,6 +503,7 @@ fn point_to_segment_with_t(
     px: f64, py: f64,
     ax: f64, ay: f64,
     bx: f64, by: f64,
+    cos_lat: f64,
 ) -> (f64, f64) {
     let dx = bx - ax;
     let dy = by - ay;
@@ -515,15 +517,18 @@ fn point_to_segment_with_t(
 
     let proj_x = ax + t * dx;
     let proj_y = ay + t * dy;
-    (haversine_approx(px, py, proj_x, proj_y), t)
+    let dlat = (px - proj_x).to_radians();
+    let dlng = (py - proj_y).to_radians();
+    (dist_sq(dlat, dlng, cos_lat), t)
 }
 
 fn point_to_segment_distance(
     px: f64, py: f64,
     ax: f64, ay: f64,
     bx: f64, by: f64,
+    cos_lat: f64,
 ) -> f64 {
-    point_to_segment_with_t(px, py, ax, ay, bx, by).0
+    point_to_segment_with_t(px, py, ax, ay, bx, by, cos_lat).0
 }
 
 // Ray casting point-in-polygon test
