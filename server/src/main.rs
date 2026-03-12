@@ -71,14 +71,12 @@ struct NodeCoord {
 // --- Index data ---
 
 struct Index {
-    street_cells: Mmap,
+    geo_cells: Mmap,
     street_entries: Mmap,
     street_ways: Mmap,
     street_nodes: Mmap,
-    addr_cells: Mmap,
     addr_entries: Mmap,
     addr_points: Mmap,
-    interp_cells: Mmap,
     interp_entries: Mmap,
     interp_ways: Mmap,
     interp_nodes: Mmap,
@@ -89,6 +87,14 @@ struct Index {
     strings: Mmap,
 }
 
+const NO_DATA: u32 = 0xFFFFFFFF;
+
+struct GeoCellOffsets {
+    street: u32,
+    addr: u32,
+    interp: u32,
+}
+
 fn mmap_file(path: &str) -> Mmap {
     let file = File::open(path).unwrap_or_else(|e| panic!("Failed to open {}: {}", path, e));
     unsafe { Mmap::map(&file).unwrap_or_else(|e| panic!("Failed to mmap {}: {}", path, e)) }
@@ -97,14 +103,12 @@ fn mmap_file(path: &str) -> Mmap {
 impl Index {
     fn load(dir: &str) -> Self {
         Index {
-            street_cells: mmap_file(&format!("{}/street_cells.bin", dir)),
+            geo_cells: mmap_file(&format!("{}/geo_cells.bin", dir)),
             street_entries: mmap_file(&format!("{}/street_entries.bin", dir)),
             street_ways: mmap_file(&format!("{}/street_ways.bin", dir)),
             street_nodes: mmap_file(&format!("{}/street_nodes.bin", dir)),
-            addr_cells: mmap_file(&format!("{}/addr_cells.bin", dir)),
             addr_entries: mmap_file(&format!("{}/addr_entries.bin", dir)),
             addr_points: mmap_file(&format!("{}/addr_points.bin", dir)),
-            interp_cells: mmap_file(&format!("{}/interp_cells.bin", dir)),
             interp_entries: mmap_file(&format!("{}/interp_entries.bin", dir)),
             interp_ways: mmap_file(&format!("{}/interp_ways.bin", dir)),
             interp_nodes: mmap_file(&format!("{}/interp_nodes.bin", dir)),
@@ -134,34 +138,10 @@ impl Index {
         u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap())
     }
 
-    // Binary search cell index: each entry is 12 bytes (u64 cell_id + u32 offset)
-    fn lookup_cell_ids(cells: &[u8], entries: &[u8], cell_id: u64) -> Vec<u32> {
-        let entry_size: usize = 12;
-        let count = cells.len() / entry_size;
-        if count == 0 { return vec![]; }
-
-        let mut lo = 0usize;
-        let mut hi = count;
-        let mut found = None;
-        while lo < hi {
-            let mid = lo + (hi - lo) / 2;
-            let mid_id = Self::read_u64(cells, mid * entry_size);
-            if mid_id == cell_id {
-                found = Some(mid);
-                break;
-            } else if mid_id < cell_id {
-                lo = mid + 1;
-            } else {
-                hi = mid;
-            }
-        }
-
-        let idx = match found {
-            Some(i) => i,
-            None => return vec![],
-        };
-
-        let offset = Self::read_u32(cells, idx * entry_size + 8) as usize;
+    // Read entry IDs from entries file at given offset
+    fn read_entry_ids(entries: &[u8], offset: u32) -> Vec<u32> {
+        if offset == NO_DATA { return vec![]; }
+        let offset = offset as usize;
         if offset + 2 > entries.len() { return vec![]; }
 
         let id_count = Self::read_u16(entries, offset) as usize;
@@ -174,9 +154,58 @@ impl Index {
             .collect()
     }
 
-    // --- Address lookup ---
+    // Binary search geo cell index: 20 bytes per entry (u64 cell_id + u32 street + u32 addr + u32 interp)
+    fn lookup_geo_cell(cells: &[u8], cell_id: u64) -> GeoCellOffsets {
+        let entry_size: usize = 20;
+        let count = cells.len() / entry_size;
+        let empty = GeoCellOffsets { street: NO_DATA, addr: NO_DATA, interp: NO_DATA };
+        if count == 0 { return empty; }
 
-    fn find_nearest_addr(&self, lat: f64, lng: f64) -> Option<(f64, &AddrPoint)> {
+        let mut lo = 0usize;
+        let mut hi = count;
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let mid_id = Self::read_u64(cells, mid * entry_size);
+            if mid_id == cell_id {
+                return GeoCellOffsets {
+                    street: Self::read_u32(cells, mid * entry_size + 8),
+                    addr: Self::read_u32(cells, mid * entry_size + 12),
+                    interp: Self::read_u32(cells, mid * entry_size + 16),
+                };
+            } else if mid_id < cell_id {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        empty
+    }
+
+    // Binary search admin cell index: 12 bytes per entry (u64 cell_id + u32 offset)
+    fn lookup_admin_cell(cells: &[u8], cell_id: u64) -> u32 {
+        let entry_size: usize = 12;
+        let count = cells.len() / entry_size;
+        if count == 0 { return NO_DATA; }
+
+        let mut lo = 0usize;
+        let mut hi = count;
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let mid_id = Self::read_u64(cells, mid * entry_size);
+            if mid_id == cell_id {
+                return Self::read_u32(cells, mid * entry_size + 8);
+            } else if mid_id < cell_id {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        NO_DATA
+    }
+
+    // --- Geo lookup (streets, addresses, interpolation from merged index) ---
+
+    fn query_geo(&self, lat: f64, lng: f64) -> (Option<(f64, &AddrPoint)>, Option<(f64, String, u32)>, Option<(f64, &WayHeader)>) {
         let cell = cell_id_at_level(lat, lng, STREET_CELL_LEVEL);
         let neighbors = cell_neighbors_at_level(cell, STREET_CELL_LEVEL);
 
@@ -186,54 +215,58 @@ impl Index {
                 self.addr_points.len() / std::mem::size_of::<AddrPoint>(),
             )
         };
-
-        let mut best_dist = f64::MAX;
-        let mut best_point: Option<&AddrPoint> = None;
-
-        for c in std::iter::once(cell).chain(neighbors.into_iter()) {
-            let ids = Self::lookup_cell_ids(&self.addr_cells, &self.addr_entries, c);
-            for id in ids {
-                let point = &all_points[id as usize];
-                let dist = haversine_approx(lat, lng, point.lat as f64, point.lng as f64);
-                if dist < best_dist {
-                    best_dist = dist;
-                    best_point = Some(point);
-                }
-            }
-        }
-
-        best_point.map(|p| (best_dist, p))
-    }
-
-    // --- Street lookup ---
-
-    fn find_nearest_street(&self, lat: f64, lng: f64) -> Option<(f64, &WayHeader)> {
-        let cell = cell_id_at_level(lat, lng, STREET_CELL_LEVEL);
-        let neighbors = cell_neighbors_at_level(cell, STREET_CELL_LEVEL);
-
         let all_ways: &[WayHeader] = unsafe {
             std::slice::from_raw_parts(
                 self.street_ways.as_ptr() as *const WayHeader,
                 self.street_ways.len() / std::mem::size_of::<WayHeader>(),
             )
         };
-        let all_nodes: &[NodeCoord] = unsafe {
+        let all_street_nodes: &[NodeCoord] = unsafe {
             std::slice::from_raw_parts(
                 self.street_nodes.as_ptr() as *const NodeCoord,
                 self.street_nodes.len() / std::mem::size_of::<NodeCoord>(),
             )
         };
+        let all_interps: &[InterpWay] = unsafe {
+            std::slice::from_raw_parts(
+                self.interp_ways.as_ptr() as *const InterpWay,
+                self.interp_ways.len() / std::mem::size_of::<InterpWay>(),
+            )
+        };
+        let all_interp_nodes: &[NodeCoord] = unsafe {
+            std::slice::from_raw_parts(
+                self.interp_nodes.as_ptr() as *const NodeCoord,
+                self.interp_nodes.len() / std::mem::size_of::<NodeCoord>(),
+            )
+        };
 
-        let mut best_dist = f64::MAX;
-        let mut best_way: Option<&WayHeader> = None;
+        let mut best_addr_dist = f64::MAX;
+        let mut best_addr: Option<&AddrPoint> = None;
+        let mut best_street_dist = f64::MAX;
+        let mut best_street: Option<&WayHeader> = None;
+        let mut best_interp_dist = f64::MAX;
+        let mut best_interp: Option<&InterpWay> = None;
+        let mut best_interp_t: f64 = 0.0;
 
         for c in std::iter::once(cell).chain(neighbors.into_iter()) {
-            let ids = Self::lookup_cell_ids(&self.street_cells, &self.street_entries, c);
-            for id in ids {
+            let offsets = Self::lookup_geo_cell(&self.geo_cells, c);
+
+            // Addresses
+            for id in Self::read_entry_ids(&self.addr_entries, offsets.addr) {
+                let point = &all_points[id as usize];
+                let dist = haversine_approx(lat, lng, point.lat as f64, point.lng as f64);
+                if dist < best_addr_dist {
+                    best_addr_dist = dist;
+                    best_addr = Some(point);
+                }
+            }
+
+            // Streets
+            for id in Self::read_entry_ids(&self.street_entries, offsets.street) {
                 let way = &all_ways[id as usize];
                 let offset = way.node_offset as usize;
                 let count = way.node_count as usize;
-                let nodes = &all_nodes[offset..offset + count];
+                let nodes = &all_street_nodes[offset..offset + count];
 
                 for i in 0..nodes.len() - 1 {
                     let dist = point_to_segment_distance(
@@ -241,51 +274,21 @@ impl Index {
                         nodes[i].lat as f64, nodes[i].lng as f64,
                         nodes[i + 1].lat as f64, nodes[i + 1].lng as f64,
                     );
-                    if dist < best_dist {
-                        best_dist = dist;
-                        best_way = Some(way);
+                    if dist < best_street_dist {
+                        best_street_dist = dist;
+                        best_street = Some(way);
                     }
                 }
             }
-        }
 
-        best_way.map(|w| (best_dist, w))
-    }
-
-    // --- Interpolation lookup ---
-
-    fn find_nearest_interp(&self, lat: f64, lng: f64) -> Option<(f64, String, u32)> {
-        let cell = cell_id_at_level(lat, lng, STREET_CELL_LEVEL);
-        let neighbors = cell_neighbors_at_level(cell, STREET_CELL_LEVEL);
-
-        let all_interps: &[InterpWay] = unsafe {
-            std::slice::from_raw_parts(
-                self.interp_ways.as_ptr() as *const InterpWay,
-                self.interp_ways.len() / std::mem::size_of::<InterpWay>(),
-            )
-        };
-        let all_nodes: &[NodeCoord] = unsafe {
-            std::slice::from_raw_parts(
-                self.interp_nodes.as_ptr() as *const NodeCoord,
-                self.interp_nodes.len() / std::mem::size_of::<NodeCoord>(),
-            )
-        };
-
-        if all_interps.is_empty() { return None; }
-
-        let mut best_dist = f64::MAX;
-        let mut best_interp: Option<&InterpWay> = None;
-        let mut best_t: f64 = 0.0;
-
-        for c in std::iter::once(cell).chain(neighbors.into_iter()) {
-            let ids = Self::lookup_cell_ids(&self.interp_cells, &self.interp_entries, c);
-            for id in ids {
+            // Interpolation
+            for id in Self::read_entry_ids(&self.interp_entries, offsets.interp) {
                 let iw = &all_interps[id as usize];
                 if iw.start_number == 0 || iw.end_number == 0 { continue; }
 
                 let offset = iw.node_offset as usize;
                 let count = iw.node_count as usize;
-                let nodes = &all_nodes[offset..offset + count];
+                let nodes = &all_interp_nodes[offset..offset + count];
 
                 let mut total_len: f64 = 0.0;
                 for i in 0..nodes.len() - 1 {
@@ -317,18 +320,20 @@ impl Index {
                     prev_accumulated += seg_len;
                 }
 
-                if best_seg_dist < best_dist {
-                    best_dist = best_seg_dist;
+                if best_seg_dist < best_interp_dist {
+                    best_interp_dist = best_seg_dist;
                     best_interp = Some(iw);
-                    best_t = best_seg_t;
+                    best_interp_t = best_seg_t;
                 }
             }
         }
 
-        best_interp.map(|iw| {
+        let addr_result = best_addr.map(|p| (best_addr_dist, p));
+        let street_result = best_street.map(|w| (best_street_dist, w));
+        let interp_result = best_interp.map(|iw| {
             let start = iw.start_number as f64;
             let end = iw.end_number as f64;
-            let raw = start + best_t * (end - start);
+            let raw = start + best_interp_t * (end - start);
 
             let step: u32 = match iw.interpolation {
                 1 | 2 => 2,
@@ -344,8 +349,10 @@ impl Index {
             };
 
             let street = self.get_string(iw.street_id).to_string();
-            (best_dist, street, number)
-        })
+            (best_interp_dist, street, number)
+        });
+
+        (addr_result, interp_result, street_result)
     }
 
     // --- Admin boundary lookup (point-in-polygon) ---
@@ -374,7 +381,7 @@ impl Index {
         const ID_MASK: u32 = 0x7FFFFFFF;
 
         for c in std::iter::once(cell).chain(neighbors.into_iter()) {
-            let ids = Self::lookup_cell_ids(&self.admin_cells, &self.admin_entries, c);
+            let ids = Self::read_entry_ids(&self.admin_entries, Self::lookup_admin_cell(&self.admin_cells, c));
             for id in ids {
                 let is_interior = (id & INTERIOR_FLAG) != 0;
                 let poly_id = (id & ID_MASK) as usize;
@@ -424,9 +431,10 @@ impl Index {
         let max_street_dist = 0.005 * 0.005; // ~500m, squared
 
         let admin = self.find_admin(lat, lng);
+        let (addr, interp, street) = self.query_geo(lat, lng);
 
         // 1. Try nearest address point
-        if let Some((dist, point)) = self.find_nearest_addr(lat, lng) {
+        if let Some((dist, point)) = addr {
             if dist < max_addr_dist {
                 return Address {
                     housenumber: Some(self.get_string(point.housenumber_id).to_string()),
@@ -440,11 +448,11 @@ impl Index {
         }
 
         // 2. Try interpolation
-        if let Some((dist, street, number)) = self.find_nearest_interp(lat, lng) {
+        if let Some((dist, street_name, number)) = interp {
             if dist < max_addr_dist {
                 return Address {
                     housenumber: Some(number.to_string()),
-                    street: Some(street),
+                    street: Some(street_name),
                     city: admin.city,
                     state: admin.state,
                     postcode: admin.postcode,
@@ -454,7 +462,7 @@ impl Index {
         }
 
         // 3. Fall back to nearest street
-        if let Some((dist, way)) = self.find_nearest_street(lat, lng) {
+        if let Some((dist, way)) = street {
             if dist < max_street_dist {
                 return Address {
                     housenumber: None,

@@ -4,6 +4,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -655,6 +656,29 @@ static void deduplicate(Map& cell_map) {
 
 // --- Write cell index ---
 
+static const uint32_t NO_DATA = 0xFFFFFFFFu;
+
+// Write entries file and return offset map
+static std::unordered_map<uint64_t, uint32_t> write_entries(
+    const std::string& path,
+    const std::vector<uint64_t>& sorted_cells,
+    const std::unordered_map<uint64_t, std::vector<uint32_t>>& cell_map
+) {
+    std::unordered_map<uint64_t, uint32_t> offsets;
+    std::ofstream f(path, std::ios::binary);
+    uint32_t current = 0;
+    for (uint64_t cell_id : sorted_cells) {
+        auto it = cell_map.find(cell_id);
+        if (it == cell_map.end()) continue;
+        offsets[cell_id] = current;
+        uint16_t count = static_cast<uint16_t>(std::min(it->second.size(), size_t(65535)));
+        f.write(reinterpret_cast<const char*>(&count), sizeof(count));
+        f.write(reinterpret_cast<const char*>(it->second.data()), it->second.size() * sizeof(uint32_t));
+        current += sizeof(uint16_t) + it->second.size() * sizeof(uint32_t);
+    }
+    return offsets;
+}
+
 static void write_cell_index(
     const std::string& cells_path,
     const std::string& entries_path,
@@ -687,14 +711,36 @@ static void write_cell_index(
 // --- Write all index files ---
 
 static void write_index(const std::string& output_dir) {
-    write_cell_index(output_dir + "/street_cells.bin", output_dir + "/street_entries.bin", cell_to_ways);
-    std::cerr << "street index: " << cell_to_ways.size() << " cells, " << ways.size() << " ways" << std::endl;
+    // Merged geo cell index for streets, addresses, and interpolation
+    std::set<uint64_t> all_geo_cells;
+    for (const auto& [id, _] : cell_to_ways) all_geo_cells.insert(id);
+    for (const auto& [id, _] : cell_to_addrs) all_geo_cells.insert(id);
+    for (const auto& [id, _] : cell_to_interps) all_geo_cells.insert(id);
+    std::vector<uint64_t> sorted_geo_cells(all_geo_cells.begin(), all_geo_cells.end());
 
-    write_cell_index(output_dir + "/addr_cells.bin", output_dir + "/addr_entries.bin", cell_to_addrs);
-    std::cerr << "addr index: " << cell_to_addrs.size() << " cells, " << addr_points.size() << " points" << std::endl;
+    auto street_offsets = write_entries(output_dir + "/street_entries.bin", sorted_geo_cells, cell_to_ways);
+    auto addr_offsets = write_entries(output_dir + "/addr_entries.bin", sorted_geo_cells, cell_to_addrs);
+    auto interp_offsets = write_entries(output_dir + "/interp_entries.bin", sorted_geo_cells, cell_to_interps);
 
-    write_cell_index(output_dir + "/interp_cells.bin", output_dir + "/interp_entries.bin", cell_to_interps);
-    std::cerr << "interp index: " << cell_to_interps.size() << " cells, " << interp_ways.size() << " ways" << std::endl;
+    {
+        std::ofstream f(output_dir + "/geo_cells.bin", std::ios::binary);
+        for (uint64_t cell_id : sorted_geo_cells) {
+            f.write(reinterpret_cast<const char*>(&cell_id), sizeof(cell_id));
+            auto write_offset = [&](const std::unordered_map<uint64_t, uint32_t>& offsets) {
+                auto it = offsets.find(cell_id);
+                uint32_t offset = (it != offsets.end()) ? it->second : NO_DATA;
+                f.write(reinterpret_cast<const char*>(&offset), sizeof(offset));
+            };
+            write_offset(street_offsets);
+            write_offset(addr_offsets);
+            write_offset(interp_offsets);
+        }
+    }
+
+    std::cerr << "geo index: " << sorted_geo_cells.size() << " cells ("
+              << ways.size() << " ways, "
+              << addr_points.size() << " addrs, "
+              << interp_ways.size() << " interps)" << std::endl;
 
     write_cell_index(output_dir + "/admin_cells.bin", output_dir + "/admin_entries.bin", cell_to_admin);
     std::cerr << "admin index: " << cell_to_admin.size() << " cells, " << admin_polygons.size() << " polygons" << std::endl;
