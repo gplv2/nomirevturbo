@@ -138,20 +138,19 @@ impl Index {
         u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap())
     }
 
-    // Read entry IDs from entries file at given offset
-    fn read_entry_ids(entries: &[u8], offset: u32) -> Vec<u32> {
-        if offset == NO_DATA { return vec![]; }
+    // Iterate entry IDs inline from entries file at given offset
+    fn for_each_entry(entries: &[u8], offset: u32, mut f: impl FnMut(u32)) {
+        if offset == NO_DATA { return; }
         let offset = offset as usize;
-        if offset + 2 > entries.len() { return vec![]; }
+        if offset + 2 > entries.len() { return; }
 
         let id_count = Self::read_u16(entries, offset) as usize;
         let data_start = offset + 2;
-        let data_end = data_start + id_count * 4;
-        if data_end > entries.len() { return vec![]; }
+        if data_start + id_count * 4 > entries.len() { return; }
 
-        (0..id_count)
-            .map(|i| Self::read_u32(entries, data_start + i * 4))
-            .collect()
+        for i in 0..id_count {
+            f(Self::read_u32(entries, data_start + i * 4));
+        }
     }
 
     // Binary search geo cell index: 20 bytes per entry (u64 cell_id + u32 street + u32 addr + u32 interp)
@@ -252,17 +251,17 @@ impl Index {
             let offsets = Self::lookup_geo_cell(&self.geo_cells, c);
 
             // Addresses
-            for id in Self::read_entry_ids(&self.addr_entries, offsets.addr) {
+            Self::for_each_entry(&self.addr_entries, offsets.addr, |id| {
                 let point = &all_points[id as usize];
                 let dist = haversine_approx(lat, lng, point.lat as f64, point.lng as f64);
                 if dist < best_addr_dist {
                     best_addr_dist = dist;
                     best_addr = Some(point);
                 }
-            }
+            });
 
             // Streets
-            for id in Self::read_entry_ids(&self.street_entries, offsets.street) {
+            Self::for_each_entry(&self.street_entries, offsets.street, |id| {
                 let way = &all_ways[id as usize];
                 let offset = way.node_offset as usize;
                 let count = way.node_count as usize;
@@ -279,12 +278,12 @@ impl Index {
                         best_street = Some(way);
                     }
                 }
-            }
+            });
 
             // Interpolation
-            for id in Self::read_entry_ids(&self.interp_entries, offsets.interp) {
+            Self::for_each_entry(&self.interp_entries, offsets.interp, |id| {
                 let iw = &all_interps[id as usize];
-                if iw.start_number == 0 || iw.end_number == 0 { continue; }
+                if iw.start_number == 0 || iw.end_number == 0 { return; }
 
                 let offset = iw.node_offset as usize;
                 let count = iw.node_count as usize;
@@ -297,7 +296,7 @@ impl Index {
                         nodes[i + 1].lat as f64, nodes[i + 1].lng as f64,
                     );
                 }
-                if total_len == 0.0 { continue; }
+                if total_len == 0.0 { return; }
 
                 let mut best_seg_dist = f64::MAX;
                 let mut best_seg_t: f64 = 0.0;
@@ -325,7 +324,7 @@ impl Index {
                     best_interp = Some(iw);
                     best_interp_t = best_seg_t;
                 }
-            }
+            });
         }
 
         let addr_result = best_addr.map(|p| (best_addr_dist, p));
@@ -381,17 +380,16 @@ impl Index {
         const ID_MASK: u32 = 0x7FFFFFFF;
 
         for c in std::iter::once(cell).chain(neighbors.into_iter()) {
-            let ids = Self::read_entry_ids(&self.admin_entries, Self::lookup_admin_cell(&self.admin_cells, c));
-            for id in ids {
+            Self::for_each_entry(&self.admin_entries, Self::lookup_admin_cell(&self.admin_cells, c), |id| {
                 let is_interior = (id & INTERIOR_FLAG) != 0;
                 let poly_id = (id & ID_MASK) as usize;
                 let poly = &all_polygons[poly_id];
                 let level = poly.admin_level as usize;
-                if level >= 12 { continue; }
+                if level >= 12 { return; }
 
                 // Skip if we already have a smaller polygon at this level
                 if let Some((best_area, _)) = best_by_level[level] {
-                    if poly.area >= best_area { continue; }
+                    if poly.area >= best_area { return; }
                 }
 
                 // Interior cells skip point-in-polygon test
@@ -402,7 +400,7 @@ impl Index {
                 }) {
                     best_by_level[level] = Some((poly.area, poly));
                 }
-            }
+            });
         }
 
         let mut result = AdminResult::default();
