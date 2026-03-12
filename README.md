@@ -1,0 +1,162 @@
+# Traccar Geocoder
+
+A fast, self-hosted reverse geocoding service built from OpenStreetMap data. Given latitude and longitude coordinates, it returns the nearest street address including house number, street name, city, state, county, postcode, and country.
+
+## Features
+
+- Street-level reverse geocoding from OSM data
+- Address point, street name, and address interpolation lookup
+- Administrative boundary resolution (country, state, county, city, postcode)
+- Sub-millisecond query latency with memory-mapped index files
+- Automatic HTTPS with Let's Encrypt
+- Docker support with automatic PBF download and indexing
+
+## Quick Start
+
+### Docker Compose
+
+```yaml
+services:
+  geocoder:
+    image: traccar/traccar-geocoder
+    environment:
+      - PBF_URLS=https://download.geofabrik.de/europe/monaco-latest.osm.pbf
+    ports:
+      - "3000:3000"
+    volumes:
+      - geocoder-data:/data
+
+volumes:
+  geocoder-data:
+```
+
+```bash
+docker compose up
+```
+
+### Docker
+
+```bash
+# All-in-one: download, build index, and serve
+docker run -e PBF_URLS="https://download.geofabrik.de/europe-latest.osm.pbf" \
+  -v geocoder-data:/data -p 3000:3000 traccar/traccar-geocoder
+
+# Build index only
+docker run -e PBF_URLS="https://download.geofabrik.de/europe-latest.osm.pbf" \
+  -v geocoder-data:/data traccar/traccar-geocoder build
+
+# Serve only (from pre-built index)
+docker run -v geocoder-data:/data -p 3000:3000 traccar/traccar-geocoder serve
+
+# Multiple PBF files
+docker run -e PBF_URLS="https://download.geofabrik.de/europe/france-latest.osm.pbf https://download.geofabrik.de/europe/germany-latest.osm.pbf" \
+  -v geocoder-data:/data -p 3000:3000 traccar/traccar-geocoder
+
+# With automatic HTTPS
+docker run -e PBF_URLS="https://download.geofabrik.de/planet-latest.osm.pbf" \
+  -e DOMAIN=geocoder.example.com \
+  -v geocoder-data:/data -p 443:443 traccar/traccar-geocoder
+```
+
+PBF files can be downloaded from [Geofabrik](https://download.geofabrik.de/).
+
+## API
+
+### GET /reverse
+
+Query parameters:
+- `lat` - latitude (required)
+- `lng` - longitude (required)
+
+Response:
+
+```json
+{
+  "housenumber": "42",
+  "street": "Avenue de la Costa",
+  "city": "Monaco",
+  "state": "Monaco",
+  "county": "Monaco",
+  "postcode": "98000",
+  "country": "Monaco"
+}
+```
+
+Fields are omitted when not available.
+
+## Architecture
+
+The project consists of two components:
+
+- **Builder** (C++) - Parses OSM PBF files and creates a compact binary index using S2 geometry cells for spatial lookup.
+- **Server** (Rust) - Memory-maps the index files and serves queries via HTTP/HTTPS with sub-millisecond latency.
+
+### Index Structure
+
+The builder produces 14 binary files:
+
+| File | Description |
+|------|-------------|
+| `geo_cells.bin` | Merged S2 cell index for streets, addresses, and interpolations |
+| `street_entries.bin` | Street way IDs per cell |
+| `street_ways.bin` | Street way headers (node offset, name) |
+| `street_nodes.bin` | Street node coordinates |
+| `addr_entries.bin` | Address point IDs per cell |
+| `addr_points.bin` | Address point data (coordinates, house number, street) |
+| `interp_entries.bin` | Interpolation way IDs per cell |
+| `interp_ways.bin` | Interpolation way headers |
+| `interp_nodes.bin` | Interpolation node coordinates |
+| `admin_cells.bin` | S2 cell index for admin boundaries |
+| `admin_entries.bin` | Admin polygon IDs per cell |
+| `admin_polygons.bin` | Admin polygon metadata |
+| `admin_vertices.bin` | Admin polygon vertices |
+| `strings.bin` | Deduplicated string pool |
+
+## Building from Source
+
+### Prerequisites
+
+**Builder (C++):**
+- CMake 3.16+
+- C++17 compiler
+- libosmium, protozero, s2geometry, zlib, bzip2, expat
+
+**Server (Rust):**
+- Rust toolchain
+
+### Build
+
+```bash
+# Build the indexer
+mkdir build && cd build && cmake ../builder && make
+
+# Build the server
+cargo build --release --manifest-path server/Cargo.toml
+```
+
+### Run
+
+```bash
+# Create index from PBF file
+./build/build-index output-dir input.osm.pbf [input2.osm.pbf ...]
+
+# Start the server
+./server/target/release/query-server output-dir [bind-address]
+
+# Start with automatic HTTPS
+./server/target/release/query-server output-dir --domain geocoder.example.com
+```
+
+## Environment Variables (Docker)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PBF_URLS` | Space-separated list of PBF download URLs | (required for auto/build) |
+| `DOMAIN` | Domain name for automatic HTTPS via Let's Encrypt | (disabled) |
+| `BIND_ADDR` | HTTP bind address | `0.0.0.0:3000` |
+| `DATA_DIR` | Data directory for PBF files and index | `/data` |
+| `CACHE_DIR` | ACME certificate cache directory | `acme-cache` |
+
+## License
+
+Apache License 2.0
