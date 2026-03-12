@@ -56,6 +56,7 @@ struct AdminPolygon {
     uint32_t name_id;
     uint8_t admin_level;
     float area;
+    uint16_t country_code;
 };
 
 struct NodeCoord {
@@ -353,7 +354,8 @@ static void add_addr_point(double lat, double lng, const char* housenumber, cons
 // --- Add an admin polygon ---
 
 static void add_admin_polygon(const std::vector<std::pair<double,double>>& vertices,
-                               const char* name, uint8_t admin_level) {
+                               const char* name, uint8_t admin_level,
+                               const char* country_code) {
     // Simplify large polygons
     auto simplified = simplify_polygon(vertices, 500);
     if (simplified.size() < 3) return;
@@ -371,6 +373,9 @@ static void add_admin_polygon(const std::vector<std::pair<double,double>>& verti
     poly.name_id = strings.intern(name);
     poly.admin_level = admin_level;
     poly.area = polygon_area(simplified);
+    poly.country_code = (country_code && country_code[0] && country_code[1])
+        ? static_cast<uint16_t>((country_code[0] << 8) | country_code[1])
+        : 0;
     admin_polygons.push_back(poly);
 
     // S2 cell coverage (high bit marks interior cells)
@@ -454,6 +459,10 @@ public:
             name_str = name;
         }
 
+        // Extract country code for level 2 boundaries
+        const char* country_code = (admin_level == 2)
+            ? area.tags()["ISO3166-1:alpha2"]
+            : nullptr;
         // Extract outer ring vertices
         for (const auto& outer_ring : area.outer_rings()) {
             std::vector<std::pair<double,double>> vertices;
@@ -463,7 +472,7 @@ public:
                 }
             }
             if (vertices.size() >= 3) {
-                add_admin_polygon(vertices, name_str.c_str(), admin_level);
+                add_admin_polygon(vertices, name_str.c_str(), admin_level, country_code);
             }
         }
 

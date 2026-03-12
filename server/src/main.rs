@@ -60,6 +60,7 @@ struct AdminPolygon {
     name_id: u32,
     admin_level: u8,
     area: f32,
+    country_code: u16,
 }
 
 #[repr(C)]
@@ -420,7 +421,15 @@ impl Index {
             if let Some((_, poly)) = best_by_level[level] {
                 let name = self.get_string(poly.name_id);
                 match poly.admin_level {
-                    2 => result.country = Some(name),
+                    2 => {
+                        result.country = Some(name);
+                        if poly.country_code != 0 {
+                            result.country_code = Some([
+                                (poly.country_code >> 8) as u8,
+                                (poly.country_code & 0xFF) as u8,
+                            ]);
+                        }
+                    }
                     4 => result.state = Some(name),
                     6 => result.county = Some(name),
                     8 => result.city = Some(name),
@@ -445,7 +454,8 @@ impl Index {
         // 1. Try nearest address point
         if let Some((dist, point)) = addr {
             if dist < max_addr_dist {
-                return Address {
+                let mut a = Address {
+                    formatted_address: None,
                     housenumber: Some(Cow::Borrowed(self.get_string(point.housenumber_id))),
                     street: Some(self.get_string(point.street_id)),
                     city: admin.city,
@@ -453,14 +463,18 @@ impl Index {
                     county: admin.county,
                     postcode: admin.postcode,
                     country: admin.country,
+                    country_code: admin.country_code.map(|c| String::from_utf8_lossy(&c).into_owned()),
                 };
+                a.formatted_address = format_address(&a);
+                return a;
             }
         }
 
         // 2. Try interpolation
         if let Some((dist, street_name, number)) = interp {
             if dist < max_addr_dist {
-                return Address {
+                let mut a = Address {
+                    formatted_address: None,
                     housenumber: Some(Cow::Owned(number.to_string())),
                     street: Some(street_name),
                     city: admin.city,
@@ -468,14 +482,18 @@ impl Index {
                     county: admin.county,
                     postcode: admin.postcode,
                     country: admin.country,
+                    country_code: admin.country_code.map(|c| String::from_utf8_lossy(&c).into_owned()),
                 };
+                a.formatted_address = format_address(&a);
+                return a;
             }
         }
 
         // 3. Fall back to nearest street
         if let Some((dist, way)) = street {
             if dist < max_street_dist {
-                return Address {
+                let mut a = Address {
+                    formatted_address: None,
                     housenumber: None,
                     street: Some(self.get_string(way.name_id)),
                     city: admin.city,
@@ -483,13 +501,17 @@ impl Index {
                     county: admin.county,
                     postcode: admin.postcode,
                     country: admin.country,
+                    country_code: admin.country_code.map(|c| String::from_utf8_lossy(&c).into_owned()),
                 };
+                a.formatted_address = format_address(&a);
+                return a;
             }
         }
 
         // 4. Admin only
         if admin.country.is_some() || admin.city.is_some() {
-            return Address {
+            let mut a = Address {
+                formatted_address: None,
                 housenumber: None,
                 street: None,
                 city: admin.city,
@@ -497,7 +519,10 @@ impl Index {
                 county: admin.county,
                 postcode: admin.postcode,
                 country: admin.country,
+                country_code: admin.country_code.map(|c| String::from_utf8_lossy(&c).into_owned()),
             };
+            a.formatted_address = format_address(&a);
+            return a;
         }
 
         Address::default()
@@ -568,6 +593,7 @@ fn point_in_polygon(lat: f32, lng: f32, vertices: &[NodeCoord]) -> bool {
 #[derive(Default)]
 struct AdminResult<'a> {
     country: Option<&'a str>,
+    country_code: Option<[u8; 2]>,
     state: Option<&'a str>,
     county: Option<&'a str>,
     city: Option<&'a str>,
@@ -576,6 +602,8 @@ struct AdminResult<'a> {
 
 #[derive(Serialize, Default)]
 struct Address<'a> {
+    #[serde(rename = "formattedAddress", skip_serializing_if = "Option::is_none")]
+    formatted_address: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     housenumber: Option<Cow<'a, str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -590,6 +618,94 @@ struct Address<'a> {
     postcode: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     country: Option<&'a str>,
+    #[serde(rename = "countryCode", skip_serializing_if = "Option::is_none")]
+    country_code: Option<String>,
+}
+
+// Address formatting patterns by country code
+// Returns (number_after_street, postcode_before_city, include_state)
+fn format_rules(country_code: Option<&str>) -> (bool, bool, bool) {
+    match country_code {
+        // Number before street, postcode after city, include state
+        Some("US") | Some("CA") | Some("AU") | Some("NZ")
+        | Some("GB") | Some("IE") | Some("ZA") | Some("IN")
+        | Some("NG") | Some("KE") | Some("GH") | Some("PK")
+        | Some("PH") | Some("TH") | Some("MY") => (false, false, true),
+
+        // Number before street, postcode before city, include state
+        Some("JP") | Some("KR") | Some("CN") | Some("TW") => (false, true, true),
+
+        // Number after street, postcode before city, no state (most of Europe, etc.)
+        _ => (true, true, false),
+    }
+}
+
+fn format_address(addr: &Address<'_>) -> Option<String> {
+    if addr.street.is_none() && addr.city.is_none() && addr.country.is_none() {
+        return None;
+    }
+
+    let (number_after, postcode_before_city, include_state) = format_rules(addr.country_code.as_deref());
+    let mut parts: Vec<String> = Vec::new();
+
+    // Street + housenumber
+    if let Some(street) = addr.street {
+        if let Some(ref hn) = addr.housenumber {
+            if number_after {
+                parts.push(format!("{} {}", street, hn));
+            } else {
+                parts.push(format!("{} {}", hn, street));
+            }
+        } else {
+            parts.push(street.to_string());
+        }
+    }
+
+    // City + postcode + state
+    if postcode_before_city {
+        let mut city_part = String::new();
+        if let Some(pc) = addr.postcode {
+            city_part.push_str(pc);
+            city_part.push(' ');
+        }
+        if let Some(city) = addr.city {
+            city_part.push_str(city);
+        }
+        if include_state {
+            if let Some(state) = addr.state {
+                if !city_part.is_empty() { city_part.push_str(", "); }
+                city_part.push_str(state);
+            }
+        }
+        if !city_part.is_empty() {
+            parts.push(city_part.trim().to_string());
+        }
+    } else {
+        let mut city_part = String::new();
+        if let Some(city) = addr.city {
+            city_part.push_str(city);
+        }
+        if include_state {
+            if let Some(state) = addr.state {
+                if !city_part.is_empty() { city_part.push_str(", "); }
+                city_part.push_str(state);
+            }
+        }
+        if let Some(pc) = addr.postcode {
+            if !city_part.is_empty() { city_part.push(' '); }
+            city_part.push_str(pc);
+        }
+        if !city_part.is_empty() {
+            parts.push(city_part);
+        }
+    }
+
+    // Country
+    if let Some(country) = addr.country {
+        parts.push(country.to_string());
+    }
+
+    if parts.is_empty() { None } else { Some(parts.join(", ")) }
 }
 
 #[derive(Deserialize)]
