@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 // --- S2 helpers ---
 
-const STREET_CELL_LEVEL: u64 = 15;
+const STREET_CELL_LEVEL: u64 = 17;
 const ADMIN_CELL_LEVEL: u64 = 10;
 
 fn cell_id_at_level(lat: f64, lng: f64, level: u64) -> u64 {
@@ -430,7 +430,7 @@ impl Index {
 
     fn query(&self, lat: f64, lng: f64) -> Address {
         let max_addr_dist = 0.0005 * 0.0005; // ~50m, squared
-        let max_street_dist = 0.005 * 0.005; // ~500m, squared
+        let max_street_dist = 0.0007 * 0.0007; // ~75m, squared
 
         let admin = self.find_admin(lat, lng);
         let (addr, interp, street) = self.query_geo(lat, lng);

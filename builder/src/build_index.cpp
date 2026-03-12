@@ -114,7 +114,7 @@ static std::unordered_map<uint64_t, std::vector<uint32_t>> cell_to_admin;
 
 // --- S2 helpers ---
 
-static const int kStreetCellLevel = 15;
+static const int kStreetCellLevel = 17;
 static const int kAdminCellLevel = 10;
 
 static std::vector<S2CellId> cover_edge(double lat1, double lng1, double lat2, double lng2) {
