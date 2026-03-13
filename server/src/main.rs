@@ -698,18 +698,25 @@ async fn reverse_geocode(
     state: axum::extract::State<Arc<RwLock<auth::Db>>>,
     index: axum::extract::Extension<Arc<Index>>,
     limiter: axum::extract::Extension<Arc<auth::RateLimiter>>,
+    connect_info: axum::extract::ConnectInfo<std::net::SocketAddr>,
 ) -> Response {
     let key = match params.key {
         Some(k) => k,
         None => return (StatusCode::UNAUTHORIZED, "Missing API key").into_response(),
     };
 
-    let (login, rps, rpd) = match state.read().unwrap().validate_token(&key) {
+    let (login, rps, rpd, by_ip) = match state.read().unwrap().validate_token(&key) {
         Some(info) => info,
         None => return (StatusCode::UNAUTHORIZED, "Invalid API key").into_response(),
     };
 
-    if let Err(msg) = auth::check_rate(&limiter, &login, rps, rpd) {
+    let rate_key = if by_ip {
+        format!("{}:{}", login, connect_info.0.ip())
+    } else {
+        login
+    };
+
+    if let Err(msg) = auth::check_rate(&limiter, &rate_key, rps, rpd) {
         return (StatusCode::TOO_MANY_REQUESTS, msg).into_response();
     }
 
@@ -777,13 +784,13 @@ async fn main() {
         eprintln!("Starting HTTPS server on :443 for {}...", domain);
         axum_server::bind(addr)
             .acceptor(acceptor)
-            .serve(app.into_make_service())
+            .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
             .await
             .unwrap();
     } else {
         let bind_addr = args.get(2).map(|s| s.as_str()).unwrap_or("0.0.0.0:3000");
         eprintln!("Starting HTTP server on {}...", bind_addr);
         let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
     }
 }

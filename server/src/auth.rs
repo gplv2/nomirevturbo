@@ -20,6 +20,8 @@ pub struct User {
     admin: bool,
     rate_per_second: u32,
     rate_per_day: u32,
+    #[serde(default)]
+    rate_by_ip: bool,
 }
 
 pub struct RateState {
@@ -67,21 +69,22 @@ impl Db {
         fs::write(&self.path, data).expect("Failed to save database");
     }
 
-    fn create_user(&mut self, login: &str, password: &str, admin: bool, rate_per_second: u32, rate_per_day: u32) {
+    fn create_user(&mut self, login: &str, password: &str, admin: bool, rate_per_second: u32, rate_per_day: u32, rate_by_ip: bool) {
         let hash = bcrypt::hash(password, bcrypt::DEFAULT_COST).expect("bcrypt hash failed");
         self.users.insert(login.to_string(), User {
             password_hash: hash,
             admin,
             rate_per_second,
             rate_per_day,
+            rate_by_ip,
         });
         self.save();
     }
 
-    pub fn validate_token(&self, key: &str) -> Option<(String, u32, u32)> {
+    pub fn validate_token(&self, key: &str) -> Option<(String, u32, u32, bool)> {
         let login = self.tokens.get(key)?;
         let user = self.users.get(login)?;
-        Some((login.clone(), user.rate_per_second, user.rate_per_day))
+        Some((login.clone(), user.rate_per_second, user.rate_per_day, user.rate_by_ip))
     }
 }
 
@@ -184,7 +187,7 @@ async fn login_submit(state: State<Arc<RwLock<Db>>>, Form(form): Form<LoginForm>
 
     // First login ever — create admin account
     if db.users.is_empty() {
-        db.create_user(&form.login, &form.password, true, 0, 0);
+        db.create_user(&form.login, &form.password, true, 0, 0, false);
     }
 
     if let Some(user) = db.users.get(&form.login) {
@@ -246,9 +249,10 @@ async fn dashboard(
             } else {
                 String::new()
             };
+            let by_ip = if user.rate_by_ip { "Yes" } else { "" };
             user_rows.push_str(&format!(
-                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-                html_escape(ulogin), role, user.rate_per_second, user.rate_per_day, delete
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                html_escape(ulogin), role, user.rate_per_second, user.rate_per_day, by_ip, delete
             ));
         }
     }
@@ -311,6 +315,8 @@ struct CreateUserForm {
     password: String,
     rate_per_second: u32,
     rate_per_day: u32,
+    #[serde(default)]
+    rate_by_ip: Option<String>,
 }
 
 async fn create_user_handler(headers: HeaderMap, state: State<Arc<RwLock<Db>>>, Form(form): Form<CreateUserForm>) -> Response {
@@ -323,7 +329,7 @@ async fn create_user_handler(headers: HeaderMap, state: State<Arc<RwLock<Db>>>, 
     if let Some(login) = db.sessions.get(&session_id).cloned() {
         let is_admin = db.users.get(&login).map(|u| u.admin).unwrap_or(false);
         if is_admin && !form.login.is_empty() && !form.password.is_empty() {
-            db.create_user(&form.login, &form.password, false, form.rate_per_second, form.rate_per_day);
+            db.create_user(&form.login, &form.password, false, form.rate_per_second, form.rate_per_day, form.rate_by_ip.is_some());
         }
     }
     Redirect::to("/").into_response()
