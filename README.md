@@ -69,6 +69,13 @@ PBF files can be downloaded from [Geofabrik](https://download.geofabrik.de/).
 Query parameters:
 - `lat` - latitude (required)
 - `lon` - longitude (required)
+- `key` - API key (required)
+
+Example request:
+
+```
+GET /reverse?lat=43.7384&lon=7.4246&key=YOUR_API_KEY
+```
 
 Response follows [Nominatim](https://nominatim.org/release-docs/latest/api/Reverse/) format:
 
@@ -89,6 +96,11 @@ Response follows [Nominatim](https://nominatim.org/release-docs/latest/api/Rever
 ```
 
 Fields are omitted when not available.
+
+Status codes:
+- `200` - success
+- `401` - missing or invalid API key
+- `429` - rate limit exceeded
 
 ## Architecture
 
