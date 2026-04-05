@@ -111,40 +111,58 @@ The write phase started with 464 MB in swap. After `shrink_to_fit()` and `malloc
 
 The biggest single drop: freeing `cell_to_addrs` released 7.4 GB in one shot (2.5 GB RSS remaining from 9.9 GB). This hash map held ~50M address cell entries with all their inner vectors and node allocations.
 
-### Planet (86 GB PBF, estimated impact)
+### Planet (86 GB PBF, measured)
 
-Based on measured data structure sizes from the completed planet build:
+The planet build was subsequently optimized further with flat pair vectors (replacing hash maps) and node filtering (Pass 1.5). The final planet build completes in **54 minutes 38 seconds** with **25 GB peak RSS and zero swap**, compared to the original 44h 46m with 94 GB + 64 GB swap.
 
-| Structure | Current peak | Optimized peak |
-|---|---|---|
-| `std::set` geo cell merge | ~22 GB | ~2.8 GB (vector) |
-| Offset hash maps (3x) | ~17 GB | ~4.1 GB (vectors) |
-| Data vectors during cell index | ~10.6 GB | 0 (freed first) |
-| Over-reserved addr_points | ~7.7 GB waste | 0 (shrink_to_fit) |
-| **Total write phase peak** | **~70+ GB** | **~32 GB** |
+The write phase specifically: **1 minute 12 seconds** for a 20 GB index. The write-phase optimizations from this document (std::set replacement, indexed offset vectors, progressive freeing) remain the foundation that makes this possible.
 
-The optimized write phase should fit entirely in RAM on the 94 GB machine with no swap needed. The previous planet build's write phase was heavily swap-bound, with page fault storms on every hash map access and tree traversal.
+| Phase | Time |
+|---|---|
+| Pass 1 (relations) | 2m 9s |
+| Pass 1.5 (node filter scan) | 4m 47s |
+| Pass 2 (reading, filtered --in-memory) | 44m 6s |
+| Sort + dedup | 1m 8s |
+| **Write** | **1m 12s** |
+| **Total** | **54m 38s** |
+
+**Memory waterfall (write phase):**
+
+```
+write start:          18.4 GB
+after shrink_to_fit:  18.1 GB
+data files freed:      7.3 GB
+geo cells sorted:     10.3 GB
+way_pairs freed:       8.8 GB
+addr_pairs freed:      7.0 GB
+geo_cells + offsets:   773 MB
+all freed:             650 MB
+```
+
+Zero swap throughout. Peak RSS 25 GB on a 94 GB machine.
 
 ## Planet Build Index (measured file sizes)
 
+From the final planet build (54m 38s, --in-memory with node filtering):
+
 | File | Size | Elements |
 |---|---|---|
-| street_ways.bin | 575 MB | 47,904,485 ways |
-| street_nodes.bin | 4,052 MB | 506,463,499 nodes |
-| addr_points.bin | 2,568 MB | 160,512,246 addresses |
-| admin_polygons.bin | 23 MB | 944,746 polygons |
+| street_ways.bin | 549 MB | 45,737,818 ways |
+| street_nodes.bin | 3,774 MB | 471,781,376 nodes |
+| addr_points.bin | 2,388 MB | 149,279,536 addresses |
+| admin_polygons.bin | 22 MB | 944,746 polygons |
 | admin_vertices.bin | 2,909 MB | 363,565,458 vertices |
-| geo_cells.bin | 6,775 MB | 338,730,312 geo cells |
-| admin_cells.bin | 25 MB | 2,056,395 admin cells |
-| strings.bin | 215 MB | 214 MB of interned strings |
-| street_entries.bin | 2,363 MB | variable-length entries |
-| addr_entries.bin | 740 MB | variable-length entries |
-| interp_entries.bin | 1.5 MB | variable-length entries |
-| admin_entries.bin | 47 MB | variable-length entries |
+| geo_cells.bin | 6,400 MB | 320,013,456 geo cells |
+| admin_cells.bin | 24 MB | 2,046,820 admin cells |
+| strings.bin | 205 MB | 205 MB of interned strings |
+| street_entries.bin | 2,253 MB | variable-length entries |
+| addr_entries.bin | 706 MB | variable-length entries |
+| interp_entries.bin | 1.4 MB | variable-length entries |
+| admin_entries.bin | 45 MB | variable-length entries |
 | interp_ways.bin | 1.7 MB | 72,885 interpolations |
-| interp_nodes.bin | 3.5 MB | 435,678 nodes |
-| **Total** | **20.3 GB** | |
+| interp_nodes.bin | 3.4 MB | 435,678 nodes |
+| **Total** | **~20 GB** | |
 
 ## Verification
 
-All optimizations produce byte-identical output. Verified by building Belgium PBF with both old and new code and diffing all 14 output files.
+All optimizations produce byte-identical output at each stage. Verified by building Belgium and Europe PBFs with successive versions and diffing all 14 output files. The node filtering pass produces semantically identical output (same element counts, same data) with minor string interning order differences due to assembler callback timing.

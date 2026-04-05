@@ -143,29 +143,40 @@ Europe pair counts scale ~2.7x for planet (86 GB / 32 GB):
 
 This 31.5 GB reduction changes the planet build profile entirely.
 
-### Planet file-backed build (94 GB machine)
+### Planet --in-memory (measured, with node filtering)
 
-The node location index is a 134 GB mmap'd temp file. Performance depends on how much of it fits in the OS page cache:
+The flat pairs optimization was subsequently combined with Pass 1.5 node filtering, which skips 89% of nodes not referenced by any street, address, or admin boundary. This reduced the SparseMemArray from ~134 GB to ~11 GB, making planet --in-memory possible on the 94 GB machine.
 
-| | V2: Hash maps | V3: Flat pairs |
-|---|---|---|
-| Process memory (data + cells) | ~52 GB | ~21 GB |
-| Free for page cache | ~42 GB (31% of 134 GB) | **~73 GB (55% of 134 GB)** |
+**Final planet build: 54 minutes 38 seconds, 25 GB peak RSS, zero swap.**
 
-With 55% of the node location temp file cacheable (vs 31% before), far fewer node lookups hit NVMe. Combined with the 24% throughput improvement from eliminating hash insertions during reading, the estimated planet build drops from 44h 46m (old code) to **15-20 hours**.
-
-No need to shut down other VMs or increase memory. 94 GB is comfortable.
-
-### Planet --in-memory (not feasible on current hardware)
-
-| Component | Memory |
+| Phase | Time |
 |---|---|
-| Node location index (SparseMemArray) | ~134 GB |
-| Pair vectors (during building) | ~5.7 GB |
-| Data vectors (with over-reserve) | ~15 GB |
-| **Total** | **~155 GB** |
+| Pass 1 (relations) | 2m 9s |
+| Pass 1.5 (node filter scan) | 4m 47s |
+| Pass 2 (reading, filtered --in-memory) | 44m 6s |
+| Sort + dedup (flat pairs) | 1m 8s |
+| Write | 1m 12s |
+| **Total** | **54m 38s** |
 
-The Proxmox host has 128 GB physical RAM. Even dedicating the entire host, planet --in-memory remains out of reach. This would complete in an estimated 2-3 hours on a 192+ GB machine.
+| Metric | Value |
+|---|---|
+| Nodes stored | 1.12 billion |
+| Nodes skipped | 9.38 billion (89%) |
+| Peak RSS | 25 GB |
+| Swap | zero |
+| Index size | 20 GB (14 files) |
+| Throughput | 15.6K ways/s, 52.4K addrs/s |
+
+The flat pairs contribution to this result: cell structures at 5.5 GB instead of 37 GB during building, leaving room for the 11 GB filtered node index within the 94 GB machine.
+
+### Full progression (planet build)
+
+| Version | Build time | Peak RAM | Speedup |
+|---|---|---|---|
+| Original (hash maps, file-backed) | 44h 46m | 94 GB + 64 GB swap | baseline |
+| V2: Write-optimized (hash maps) | est. 24-28h | similar | ~2x |
+| V3: Flat pairs (file-backed) | est. 15-20h | ~21 GB process | ~3x |
+| **V4: Flat pairs + node filtering (--in-memory)** | **54m 38s** | **25 GB, zero swap** | **49x** |
 
 ### In-memory Europe on smaller machines
 
