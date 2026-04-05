@@ -1,6 +1,10 @@
 # nomirevturbo
 
-A turbocharged, self-hosted **reverse geocoder** built from OpenStreetMap data. Nominatim-compatible API. No PostgreSQL, no PostGIS, no multi-day imports.
+> Need a worldwide reverse geocoder but don't have a spare datacenter, a 256 GB server, or three days to wait for an import? Tired of babysitting PostgreSQL while it digests the planet? Just want coordinates in, address out, and maybe grab a coffee instead of a sleeping bag?
+>
+> **Full planet. Under an hour. On a machine your cat could sit on.**
+
+A turbocharged, self-hosted **reverse geocoder** built from OpenStreetMap data. Nominatim-compatible API. No PostgreSQL, no PostGIS, no multi-day imports. Just a single binary, 20 GB of index files, and sub-millisecond answers for anywhere on Earth.
 
 This is a **reverse geocoder only**. It resolves coordinates to addresses. It does not do forward geocoding (address to coordinates).
 
