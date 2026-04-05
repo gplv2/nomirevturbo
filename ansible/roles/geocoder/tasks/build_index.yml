@@ -1,0 +1,111 @@
+---
+- name: Check if geocoder index exists
+  ansible.builtin.stat:
+    path: "{{ geocoder_index_dir }}/strings.bin"
+  register: geocoder_index
+
+- name: Check if Europe PBF exists
+  ansible.builtin.stat:
+    path: "{{ geocoder_europe_pbf_path }}"
+  register: geocoder_europe_pbf
+  when: not geocoder_index.stat.exists
+
+- name: Download Europe PBF from Geofabrik
+  ansible.builtin.command:
+    cmd: >
+      aria2c -x4 --allow-overwrite=true
+      -d {{ geocoder_europe_pbf_path | dirname }}
+      -o {{ geocoder_europe_pbf_path | basename }}
+      {{ geocoder_europe_pbf_url }}
+  when:
+    - not geocoder_index.stat.exists
+    - not (geocoder_europe_pbf.stat.exists | default(false))
+  changed_when: true
+  timeout: 3600
+
+- name: Create build directory on OS disk
+  ansible.builtin.file:
+    path: "{{ geocoder_build_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: not geocoder_index.stat.exists
+
+- name: Preserve geocoder.json auth database
+  ansible.builtin.copy:
+    src: "{{ geocoder_index_dir }}/geocoder.json"
+    dest: "{{ geocoder_data_dir }}/geocoder.json.bak"
+    remote_src: true
+    owner: "{{ geocoder_user }}"
+    group: "{{ geocoder_group }}"
+    mode: "0600"
+  when: not geocoder_index.stat.exists
+  failed_when: false
+
+- name: Build geocoder index from Europe PBF (OS disk for speed)
+  ansible.builtin.command:
+    cmd: >
+      {{ geocoder_install_dir }}/build-index
+      {{ geocoder_build_dir }}
+      {{ geocoder_europe_pbf_path }}
+      --street-level {{ geocoder_street_level }}
+      --admin-level {{ geocoder_admin_level }}
+  when: not geocoder_index.stat.exists
+  changed_when: true
+  timeout: 86400
+
+- name: Validate index build output
+  ansible.builtin.shell:
+    cmd: |
+      for f in admin_polygons.bin admin_cells.bin strings.bin geo_cells.bin addr_points.bin street_ways.bin; do
+          if [ ! -s "{{ geocoder_build_dir }}/$f" ]; then
+              echo "FAILED: $f is empty or missing"
+              exit 1
+          fi
+      done
+      echo "All index files validated"
+  when: not geocoder_index.stat.exists
+  changed_when: false
+
+- name: Remove node_locations.tmp from build directory
+  ansible.builtin.file:
+    path: "{{ geocoder_build_dir }}/node_locations.tmp"
+    state: absent
+  when: not geocoder_index.stat.exists
+
+- name: Atomic swap index from OS disk to block storage
+  ansible.builtin.shell:
+    cmd: |
+      rm -rf {{ geocoder_index_dir }}-old
+      [ -d {{ geocoder_index_dir }} ] && mv {{ geocoder_index_dir }} {{ geocoder_index_dir }}-old
+      mv {{ geocoder_build_dir }} {{ geocoder_index_dir }}
+      rm -rf {{ geocoder_index_dir }}-old
+  when: not geocoder_index.stat.exists
+  changed_when: true
+
+- name: Restore geocoder.json auth database
+  ansible.builtin.copy:
+    src: "{{ geocoder_data_dir }}/geocoder.json.bak"
+    dest: "{{ geocoder_index_dir }}/geocoder.json"
+    remote_src: true
+    owner: "{{ geocoder_user }}"
+    group: "{{ geocoder_group }}"
+    mode: "0600"
+  when: not geocoder_index.stat.exists
+  failed_when: false
+
+- name: Fix index ownership
+  ansible.builtin.file:
+    path: "{{ geocoder_index_dir }}"
+    state: directory
+    owner: "{{ geocoder_user }}"
+    group: "{{ geocoder_group }}"
+    recurse: true
+  when: not geocoder_index.stat.exists
+
+- name: Report index build status
+  ansible.builtin.debug:
+    msg: >-
+      Geocoder index {{ 'already exists' if geocoder_index.stat.exists
+      else 'built from Europe PBF and deployed to ' + geocoder_index_dir }}

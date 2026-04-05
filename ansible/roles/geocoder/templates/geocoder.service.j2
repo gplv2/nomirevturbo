@@ -1,0 +1,23 @@
+[Unit]
+Description=nomirevturbo - Reverse Geocoding Server
+After=network.target
+Documentation=https://github.com/gplv2/nomirevturbo
+
+[Service]
+Type=simple
+User={{ geocoder_user }}
+Group={{ geocoder_group }}
+ExecStart={{ geocoder_install_dir }}/query-server {{ geocoder_index_dir }} {{ geocoder_bind }}:{{ geocoder_port }}
+Restart=always
+RestartSec=5
+WorkingDirectory={{ geocoder_data_dir }}
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ geocoder_data_dir }}
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

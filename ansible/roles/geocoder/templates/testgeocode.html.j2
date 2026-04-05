@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>nomirevturbo — {{ tileserver_nginx_server_name.split() | first }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.5.0/ol.css">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; }
+  #map { width: 100%; height: 60vh; }
+  .panel { padding: 16px 20px; background: #16213e; }
+  h1 { font-size: 18px; margin-bottom: 12px; color: #0f3460; background: #e0e0e0; padding: 8px 16px; }
+  .search-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+  .search-row label { font-size: 13px; color: #a0a0a0; min-width: 30px; }
+  .search-row input { background: #0f3460; border: 1px solid #333; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; width: 140px; font-size: 14px; }
+  .search-row input:focus { outline: none; border-color: #e94560; }
+  button { background: #e94560; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+  button:hover { background: #c73550; }
+  button:disabled { background: #555; cursor: not-allowed; }
+  .hint { font-size: 12px; color: #666; margin-bottom: 12px; }
+  #result { background: #0f3460; border-radius: 6px; padding: 16px; margin-top: 12px; min-height: 60px; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-all; max-height: 40vh; overflow-y: auto; }
+  #result.error { border-left: 3px solid #e94560; }
+  #result.success { border-left: 3px solid #4ecca3; }
+  .status { font-size: 12px; color: #888; margin-top: 8px; }
+  .coords-display { font-size: 13px; color: #4ecca3; margin-bottom: 8px; }
+  .marker-dot { width: 14px; height: 14px; background: #e94560; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 6px rgba(233,69,96,0.6); }
+</style>
+</head>
+<body>
+
+<h1>nomirevturbo — {{ tileserver_nginx_server_name.split() | first }}</h1>
+<div id="map"></div>
+<div class="panel">
+  <div class="search-row">
+    <label>Lat</label>
+    <input type="text" id="lat" value="50.8503" placeholder="latitude">
+    <label>Lon</label>
+    <input type="text" id="lon" value="4.3517" placeholder="longitude">
+    <button id="btn-lookup" onclick="doLookup()">Reverse Geocode</button>
+    <button id="btn-clear" onclick="clearResult()">Clear</button>
+  </div>
+  <div class="hint">Click the map or enter coordinates. Queries nomirevturbo via <code>/geocode/reverse</code> (Nominatim-compatible).</div>
+  <div class="coords-display" id="coords-display"></div>
+  <div id="result">Click the map or press "Reverse Geocode" to start.</div>
+  <div class="status" id="status"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ol@v10.5.0/dist/ol.js"></script>
+<script>
+const GEOCODE_URL = '/geocode/reverse';
+const API_KEY = '{{ geocoder_api_key | default("") }}';
+
+// Marker layer
+const markerSource = new ol.source.Vector();
+const markerLayer = new ol.layer.Vector({
+  source: markerSource,
+  style: new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 7,
+      fill: new ol.style.Fill({ color: '#e94560' }),
+      stroke: new ol.style.Stroke({ color: 'white', width: 2 })
+    })
+  })
+});
+
+// Map
+const map = new ol.Map({
+  target: 'map',
+  layers: [
+    new ol.layer.Tile({
+      source: new ol.source.OSM()
+    }),
+    markerLayer
+  ],
+  view: new ol.View({
+    center: ol.proj.fromLonLat([4.3517, 50.8503]),
+    zoom: 6
+  })
+});
+
+// Click handler
+map.on('singleclick', function(evt) {
+  const lonlat = ol.proj.toLonLat(evt.coordinate);
+  document.getElementById('lat').value = lonlat[1].toFixed(6);
+  document.getElementById('lon').value = lonlat[0].toFixed(6);
+  placeMarker(evt.coordinate);
+  doLookup();
+});
+
+function placeMarker(coord) {
+  markerSource.clear();
+  markerSource.addFeature(new ol.Feature({
+    geometry: new ol.geom.Point(coord)
+  }));
+}
+
+function doLookup() {
+  const lat = parseFloat(document.getElementById('lat').value);
+  const lon = parseFloat(document.getElementById('lon').value);
+  if (isNaN(lat) || isNaN(lon)) {
+    showResult('Invalid coordinates', true);
+    return;
+  }
+
+  // Place marker and center map
+  const coord = ol.proj.fromLonLat([lon, lat]);
+  placeMarker(coord);
+  map.getView().animate({ center: coord, duration: 300 });
+
+  const resultEl = document.getElementById('result');
+  const statusEl = document.getElementById('status');
+  const coordsEl = document.getElementById('coords-display');
+  const btn = document.getElementById('btn-lookup');
+
+  resultEl.textContent = 'Looking up...';
+  resultEl.className = '';
+  coordsEl.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+  btn.disabled = true;
+
+  const t0 = performance.now();
+  fetch(`${GEOCODE_URL}?lat=${lat}&lon=${lon}&key=${API_KEY}`)
+    .then(r => {
+      const ms = (performance.now() - t0).toFixed(1);
+      statusEl.textContent = `HTTP ${r.status} — ${ms}ms`;
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    })
+    .then(data => {
+      showResult(JSON.stringify(data, null, 2), false);
+    })
+    .catch(err => {
+      showResult(`Error: ${err.message}\n\nThe geocoder may still be building its index.\nCheck: systemctl status geocoder`, true);
+    })
+    .finally(() => { btn.disabled = false; });
+}
+
+function showResult(text, isError) {
+  const el = document.getElementById('result');
+  el.textContent = text;
+  el.className = isError ? 'error' : 'success';
+}
+
+function clearResult() {
+  document.getElementById('result').textContent = 'Click the map or press "Reverse Geocode" to start.';
+  document.getElementById('result').className = '';
+  document.getElementById('status').textContent = '';
+  document.getElementById('coords-display').textContent = '';
+  markerSource.clear();
+}
+</script>
+</body>
+</html>

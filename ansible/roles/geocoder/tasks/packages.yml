@@ -1,0 +1,80 @@
+---
+- name: Install C++ build dependencies for geocoder
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - cmake
+      - ninja-build
+      - libosmium2-dev
+      - libprotozero-dev
+      - libabsl-dev
+      - libssl-dev
+      - zlib1g-dev
+      - libbz2-dev
+      - libexpat1-dev
+      - liblz4-dev
+    state: present
+
+- name: Check if s2geometry is installed
+  ansible.builtin.stat:
+    path: /usr/local/lib/libs2.so
+  register: geocoder_s2_installed
+
+- name: Clone s2geometry
+  ansible.builtin.git:
+    repo: https://github.com/google/s2geometry.git
+    dest: /tmp/s2geometry
+    version: v0.11.1
+    depth: 1
+  when: not geocoder_s2_installed.stat.exists
+
+- name: Build and install s2geometry
+  ansible.builtin.shell:
+    cmd: |
+      cd /tmp/s2geometry
+      cmake . -B build -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_STANDARD=17 \
+          -DBUILD_TESTS=OFF \
+          -DBUILD_EXAMPLES=OFF \
+          -DCMAKE_INSTALL_PREFIX=/usr/local
+      cmake --build build -j "$(nproc)"
+      cmake --install build
+      ldconfig
+  when: not geocoder_s2_installed.stat.exists
+  changed_when: true
+  timeout: 600
+
+- name: Clean up s2geometry build
+  ansible.builtin.file:
+    path: /tmp/s2geometry
+    state: absent
+  when: not geocoder_s2_installed.stat.exists
+
+- name: Check if Rust is installed
+  ansible.builtin.command:
+    cmd: rustc --version
+  register: geocoder_rust_check
+  changed_when: false
+  failed_when: false
+
+- name: Download rustup installer
+  ansible.builtin.get_url:
+    url: https://sh.rustup.rs
+    dest: /tmp/rustup-init.sh
+    mode: "0755"
+  when: geocoder_rust_check.rc != 0
+
+- name: Install Rust toolchain via rustup
+  ansible.builtin.command:
+    cmd: /tmp/rustup-init.sh -y --default-toolchain stable
+    creates: /root/.cargo/bin/rustc
+  when: geocoder_rust_check.rc != 0
+  environment:
+    HOME: /root
+
+- name: Remove rustup installer
+  ansible.builtin.file:
+    path: /tmp/rustup-init.sh
+    state: absent
+  when: geocoder_rust_check.rc != 0

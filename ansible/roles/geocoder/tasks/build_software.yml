@@ -1,0 +1,70 @@
+---
+- name: Check if query-server binary exists
+  ansible.builtin.stat:
+    path: "{{ geocoder_install_dir }}/query-server"
+  register: geocoder_binary
+
+- name: Check if build-index binary exists
+  ansible.builtin.stat:
+    path: "{{ geocoder_install_dir }}/build-index"
+  register: geocoder_builder_binary
+
+- name: Clone nomirevturbo repository
+  ansible.builtin.git:
+    repo: "{{ geocoder_repo }}"
+    dest: /tmp/nomirevturbo
+    version: "{{ geocoder_version }}"
+    depth: 1
+  when: not geocoder_binary.stat.exists or not geocoder_builder_binary.stat.exists
+
+# Build C++ index builder natively (s2geometry installed from packages task)
+- name: Build C++ index builder
+  ansible.builtin.shell:
+    cmd: |
+      cd /tmp/nomirevturbo/builder
+      mkdir -p build
+      cd build
+      cmake .. -DCMAKE_BUILD_TYPE=Release
+      make -j "$(nproc)"
+  when: not geocoder_builder_binary.stat.exists
+  changed_when: true
+  timeout: 300
+
+- name: Install build-index binary
+  ansible.builtin.copy:
+    src: /tmp/nomirevturbo/builder/build/build-index
+    dest: "{{ geocoder_install_dir }}/build-index"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  when: not geocoder_builder_binary.stat.exists
+
+# Build Rust query server natively
+- name: Build Rust query server
+  ansible.builtin.shell:
+    cmd: |
+      . /root/.cargo/env
+      cd /tmp/nomirevturbo
+      cargo build --release --manifest-path server/Cargo.toml
+  environment:
+    HOME: /root
+  when: not geocoder_binary.stat.exists
+  changed_when: true
+  timeout: 600
+
+- name: Install query server binary
+  ansible.builtin.copy:
+    src: /tmp/nomirevturbo/server/target/release/query-server
+    dest: "{{ geocoder_install_dir }}/query-server"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  when: not geocoder_binary.stat.exists
+  notify: Restart geocoder
+
+- name: Clean up build directory
+  ansible.builtin.file:
+    path: /tmp/nomirevturbo
+    state: absent

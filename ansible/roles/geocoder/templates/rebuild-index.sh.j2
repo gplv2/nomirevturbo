@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# {{ ansible_managed }}
+# Rebuilds geocoder index from full Europe PBF
+
+PBF_URL="{{ geocoder_europe_pbf_url }}"
+PBF_PATH="{{ geocoder_europe_pbf_path }}"
+BUILD_DIR="{{ geocoder_build_dir }}"
+INDEX_DIR="{{ geocoder_index_dir }}"
+BUILD_INDEX="{{ geocoder_install_dir }}/build-index"
+
+echo "=== Geocoder rebuild starting $(date) ==="
+
+# Step 1: Download Europe PBF
+echo "Downloading Europe PBF..."
+aria2c -x4 --allow-overwrite=true \
+    -d "$(dirname "$PBF_PATH")" \
+    -o "$(basename "$PBF_PATH")" \
+    "$PBF_URL"
+
+# Step 2: Build index on fast OS disk
+echo "Building index on OS disk..."
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+"$BUILD_INDEX" "$BUILD_DIR" "$PBF_PATH" \
+    --street-level {{ geocoder_street_level }} \
+    --admin-level {{ geocoder_admin_level }}
+
+# Step 3: Validate output
+echo "Validating index files..."
+for f in admin_polygons.bin admin_cells.bin strings.bin geo_cells.bin addr_points.bin street_ways.bin; do
+    if [ ! -s "$BUILD_DIR/$f" ]; then
+        echo "FAILED: $f is empty or missing — aborting"
+        rm -rf "$BUILD_DIR"
+        exit 1
+    fi
+done
+echo "Validation passed"
+
+# Step 4: Clean tmp file
+rm -f "$BUILD_DIR/node_locations.tmp"
+
+# Step 5: Preserve auth database
+[ -f "$INDEX_DIR/geocoder.json" ] && cp "$INDEX_DIR/geocoder.json" "$BUILD_DIR/geocoder.json"
+
+# Step 6: Atomic swap to block storage
+INDEX_OLD="${INDEX_DIR}-old"
+rm -rf "$INDEX_OLD"
+[ -d "$INDEX_DIR" ] && mv "$INDEX_DIR" "$INDEX_OLD"
+mv "$BUILD_DIR" "$INDEX_DIR"
+chown -R {{ geocoder_user }}:{{ geocoder_group }} "$INDEX_DIR"
+rm -rf "$INDEX_OLD"
+
+# Step 7: Restart geocoder
+systemctl restart geocoder
+
+echo "=== Geocoder rebuild complete $(date) ==="
+du -sh "$INDEX_DIR"

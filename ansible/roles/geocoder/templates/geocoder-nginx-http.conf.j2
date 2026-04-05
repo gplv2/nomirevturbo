@@ -1,0 +1,26 @@
+# {{ ansible_managed }}
+# Geocoder http-level config (geo map + rate limit zone)
+# Included at nginx http {} level via /etc/nginx/conf.d/
+
+# Trusted sources bypass geocoder rate limiting
+geo $geocoder_limit_key {
+    default          $binary_remote_addr;
+    # VPC subnet
+    172.16.16.0/24   "";
+    # New infra public IPs
+    172.236.201.152  "";  # MTA
+    172.236.201.202  "";  # Monitoring
+    172.238.100.154  "";  # Tileserver (self)
+    # Legacy Linodes
+    178.79.174.226   "";  # Cartman
+    176.58.120.80    "";  # Kenny
+    212.71.234.83    "";  # Stan
+    212.71.250.199   "";  # Chef
+    88.80.187.181    "";  # Butters
+    178.79.176.115   "";  # Redis
+    176.58.105.156   "";  # SS1
+    # Legacy private network
+    192.168.0.0/16   "";
+}
+
+limit_req_zone $geocoder_limit_key zone=geocoder:10m rate=10r/s;

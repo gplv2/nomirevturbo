@@ -1,0 +1,25 @@
+---
+- name: Check if geocoder role is enabled
+  ansible.builtin.meta: end_host
+  when: not geocoder_enabled | default(false)
+
+- name: Include package installation tasks
+  ansible.builtin.include_tasks: packages.yml
+
+- name: Include directory setup tasks
+  ansible.builtin.include_tasks: directories.yml
+
+- name: Include software build tasks
+  ansible.builtin.include_tasks: build_software.yml
+
+- name: Include index build tasks
+  ansible.builtin.include_tasks: build_index.yml
+
+- name: Include service tasks
+  ansible.builtin.include_tasks: service.yml
+
+- name: Include nginx location tasks
+  ansible.builtin.include_tasks: nginx_location.yml
+
+- name: Include cron tasks
+  ansible.builtin.include_tasks: cron.yml

@@ -1,0 +1,18 @@
+---
+- name: Template geocoder index rebuild script
+  ansible.builtin.template:
+    src: rebuild-index.sh.j2
+    dest: "{{ geocoder_install_dir }}/rebuild-index.sh"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Set up monthly geocoder index rebuild cron job (disabled for now)
+  ansible.builtin.cron:
+    name: geocoder-rebuild-index
+    user: root
+    minute: "0"
+    hour: "6"
+    day: "1"
+    disabled: true
+    job: "{{ geocoder_install_dir }}/rebuild-index.sh >> /var/log/geocoder-rebuild.log 2>&1"

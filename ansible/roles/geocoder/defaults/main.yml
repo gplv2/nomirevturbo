@@ -1,0 +1,31 @@
+---
+# Geocoder defaults - nomirevturbo (Rust + C++ from source)
+
+geocoder_enabled: false
+
+# Network
+geocoder_port: 3000
+geocoder_bind: "127.0.0.1"
+
+# Paths
+geocoder_install_dir: /opt/geocoder
+geocoder_data_dir: /data/geocoder
+geocoder_index_dir: /data/geocoder/index
+geocoder_build_dir: /var/tmp/geocoder-build
+
+# Source
+geocoder_repo: "https://github.com/gplv2/nomirevturbo.git"
+geocoder_version: "main"
+
+# User/group
+geocoder_user: tileserver
+geocoder_group: tileserver
+
+# Index builder settings
+geocoder_search_distance: 75
+geocoder_street_level: 17
+geocoder_admin_level: 10
+
+# PBF source — full Europe extract for complete admin boundaries
+geocoder_europe_pbf_url: "https://download.geofabrik.de/europe-latest.osm.pbf"
+geocoder_europe_pbf_path: "/var/tmp/europe-latest.osm.pbf"

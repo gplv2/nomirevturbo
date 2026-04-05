@@ -1,0 +1,39 @@
+---
+- name: Create nginx locations.d directory
+  ansible.builtin.file:
+    path: /etc/nginx/locations.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy geocoder http-level config (geo map + rate limit zone)
+  ansible.builtin.template:
+    src: geocoder-nginx-http.conf.j2
+    dest: /etc/nginx/conf.d/geocoder.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Deploy geocoder nginx location config
+  ansible.builtin.template:
+    src: geocoder-nginx.conf.j2
+    dest: /etc/nginx/locations.d/geocoder.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Deploy geocoder test page
+  ansible.builtin.template:
+    src: testgeocode.html.j2
+    dest: "{{ tileserver_base_dir | default('/data/tileserver') }}/testgeocode.html"
+    owner: "{{ geocoder_user }}"
+    group: "{{ geocoder_group }}"
+    mode: "0644"
+
+- name: Validate nginx config
+  ansible.builtin.command:
+    cmd: nginx -t
+  changed_when: false

@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+# Geocoder reverse proxy location block
+# Included inside the tileserver server block via /etc/nginx/locations.d/
+
+location /geocode/ {
+    limit_req zone=geocoder burst=20 nodelay;
+
+    proxy_pass http://{{ geocoder_bind }}:{{ geocoder_port }}/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location = /testgeocode {
+    alias {{ tileserver_base_dir | default('/data/tileserver') }}/testgeocode.html;
+    default_type text/html;
+}
