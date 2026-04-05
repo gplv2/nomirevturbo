@@ -241,6 +241,32 @@ Quick test setup:
 
 Rate limits are per-user. Setting `rate_per_second` or `rate_per_day` to `0` means unlimited. To revoke access, remove the user's token from the tokens map.
 
+## Ansible Deployment
+
+An Ansible role is included for deploying to Debian 13 (Trixie) servers. It handles the full lifecycle: building S2 geometry and Rust from source, compiling the builder and server, building the index from a PBF file, configuring a systemd service, and setting up nginx as a reverse proxy with rate limiting.
+
+```
+ansible/roles/geocoder/
+  tasks/          # packages, directories, build, service, nginx, cron
+  templates/      # systemd unit, nginx config, test page, rebuild script
+  defaults/       # configurable variables (paths, ports, PBF URL)
+  handlers/       # systemd reload, service restart, nginx reload
+```
+
+Key variables (set in your inventory `host_vars`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `geocoder_enabled` | `false` | Enable the role |
+| `geocoder_port` | `3000` | Server listen port |
+| `geocoder_bind` | `127.0.0.1` | Server bind address |
+| `geocoder_index_dir` | `/data/geocoder/index` | Index file location |
+| `geocoder_build_dir` | `/var/tmp/geocoder-build` | Scratch dir for building |
+| `geocoder_api_key` | (none) | API key for the test page |
+| `geocoder_europe_pbf_path` | `/var/tmp/europe-latest.osm.pbf` | PBF input file |
+
+The role deploys an interactive test page at `/testgeocode` (served by nginx) that lets you click a map to reverse-geocode any location. Uses OpenStreetMap tiles.
+
 ## Known Limitations
 
 When building from continent or regional PBF extracts (e.g., `europe-latest.osm.pbf`), countries with overseas territories outside the extract boundary will have incomplete `admin_level=2` boundary relations. The libosmium assembler cannot form closed polygon rings when member ways are missing.
