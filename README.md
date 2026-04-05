@@ -127,10 +127,9 @@ Build times measured on a single machine (94 GB RAM, 4 vCPUs, NVMe storage).
 
 **Recommendation: always use `--in-memory`.** Node filtering (Pass 1.5) automatically reduces the node location index from ~134 GB to ~11 GB for planet. Even the full planet build peaks at 25 GB. Any machine with 32+ GB of RAM can build the planet.
 
-**File-backed mode** (without `--in-memory`) creates a `node_locations.tmp` file for node locations. This file can grow to 134 GB for planet and dominates build time due to random I/O. If you must use file-backed mode:
+**File-backed mode** (without `--in-memory`) creates a `node_locations.tmp` file for node locations. Node filtering (Pass 1.5) applies here too, so the temp file is ~18 GB for planet (only needed nodes), not the full 134 GB it would be without filtering. Still, `--in-memory` is faster because it eliminates all temp file I/O:
 - Place the temp file on NVMe, not spinning disk (`--tmpdir /fast/nvme/tmp`)
 - The output directory can be on slower storage since index writes are sequential
-- Expect 15-20 hours for planet (vs ~57 minutes with `--in-memory`)
 
 **Disk space for index output:** The output directory needs ~20 GB for planet, ~7 GB for Europe. This can be on any filesystem -- writes are sequential and not performance-critical.
 
