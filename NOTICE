@@ -8,38 +8,65 @@ Licensed under the Apache License, Version 2.0.
 
 ================================================================================
 
-This fork contains modifications by Glenn Plas (https://github.com/gplv2).
+This fork contains substantial modifications by Glenn Plas (https://github.com/gplv2).
 Original source: https://github.com/traccar/traccar-geocoder
+Fork point: commit 6feb14e (2026-03-24)
 
 Changes from the original:
 
 Builder (builder/src/build_index.cpp):
 - S2Builder polygon repair pipeline (three-tier: S2Loop > S2Builder > bbox fallback)
-- Raised simplification limit from 500 to 10,000 vertices
+- Configurable simplification limit via --max-vertices flag (default 50,000, was hardcoded 500)
 - Lenient libosmium multipolygon assembly (ignore_invalid_locations)
 - Node location handler error tolerance (ignore_errors)
 - In-memory node location index (--in-memory flag, SparseMemArray)
+- Pass 1.5 node filtering: bitmap-based pre-scan skips 89% of nodes, reducing
+  SparseMemArray from ~134 GB to ~11 GB for planet builds
+- Flat sorted pair vectors replacing all cell hash maps (unordered_map<uint64_t,
+  vector<uint32_t>> replaced with packed 12-byte CellEntry vectors), reducing
+  cell structure memory from ~37 GB to ~5.5 GB at planet scale
+- Write phase optimization: std::set replaced with vector+sort+unique, hash map
+  offset tables replaced with position-indexed vectors, progressive memory
+  release with malloc_trim(0), merge-scan writes replacing hash lookups
+- Live memory diagnostics (/proc/self/status RSS/Swap/VM at each phase)
 - Temp file directory override (--tmpdir flag)
 - Skip PBF metadata parsing (read_meta::no)
 - Reuse S2RegionCoverer instances (static initialization)
 - Highway filter using unordered_set (O(1) lookup)
-- Vector pre-allocation from PBF file size heuristics
+- Vector pre-allocation from PBF file size heuristics with shrink_to_fit
+  before writing to reclaim over-reserved capacity
+- Per-phase build timers and throughput reporting
 - Diagnostic counters and --verbose/--debug flags
 
 Server (server/src/main.rs):
+- Country-boundaries fallback for missing country data in continent/regional
+  PBF extracts (overseas territories of France, Spain, Netherlands)
+- --no-country-fallback flag to disable fallback for planet builds
 - Precomputed mmap slice lengths at load time
 - Eliminated redundant Vec allocation in cell neighbor lookup
 - Fixed street deduplication hash collisions in dense areas
 - Rewrote format_address to use single String buffer
 - Fixed rate limiter race condition (atomics replaced with Mutex)
+- Rate limiter: 0 means unlimited (restored upstream semantics)
 - Added bounds checking on all mmap slice accesses
 - Input validation for lat/lon parameters
 - Applied clippy lints and rustfmt formatting
 - Updated TLS dependencies for security fixes (RUSTSEC-2026-0044,
   RUSTSEC-2026-0048, RUSTSEC-2026-0049)
+- 40 unit tests (format_address, auth, rate limiter, coordinates, fallback)
 
 Server (server/src/auth.rs):
+- #[serde(default)] on users and tokens fields
 - Applied clippy lints and rustfmt formatting
+
+Build infrastructure:
+- Pre-push hook (cargo clippy, fmt, audit)
+- Pre-commit hook (blocks CLAUDE.md from commits)
 
 Deployment (entrypoint.sh):
 - Positional parameters for safe argument passing
+
+Performance (planet PBF, 86 GB):
+- Original upstream: not tested at planet scale
+- Previous file-backed build: 44h 46m, 94 GB RAM + 64 GB swap
+- Current --in-memory build: ~57 min, 25 GB peak RSS, zero swap
