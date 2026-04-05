@@ -162,7 +162,7 @@ static size_t kMaxVertices = 50000;
 // Diagnostic flags and counters
 static bool verbose = false;
 static bool debug = false;
-static bool in_memory = false;
+static bool in_memory = true;
 static std::string tmp_dir;
 
 // Timer helper
@@ -1305,7 +1305,7 @@ static SizeEstimate estimate_from_file_size(size_t total_bytes) {
 
 int main(int argc, char* argv[]) {
     if (argc < 3) {
-        std::cerr << "Usage: build-index <output-dir> <input.osm.pbf> [input2.osm.pbf ...] [--street-level N] [--admin-level N] [--max-vertices N] [--verbose] [--debug] [--in-memory] [--tmpdir DIR]" << std::endl;
+        std::cerr << "Usage: build-index <output-dir> <input.osm.pbf> [input2.osm.pbf ...] [--street-level N] [--admin-level N] [--max-vertices N] [--verbose] [--debug] [--tmpdir DIR]" << std::endl;
         return 1;
     }
 
@@ -1323,11 +1323,12 @@ int main(int argc, char* argv[]) {
             debug = true;
             verbose = true;
         } else if (arg == "--in-memory") {
-            in_memory = true;
+            in_memory = true;  // already default, accepted for backward compatibility
         } else if (arg == "--max-vertices" && i + 1 < argc) {
             kMaxVertices = std::min(size_t(65535), size_t(std::atoi(argv[++i])));
         } else if (arg == "--tmpdir" && i + 1 < argc) {
             tmp_dir = argv[++i];
+            in_memory = false;
         } else {
             input_files.push_back(arg);
         }

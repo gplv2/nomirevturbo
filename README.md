@@ -105,8 +105,7 @@ The builder runs three passes over each PBF file:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--in-memory` | off | Store node locations in RAM instead of a disk-backed temp file. **Recommended for all builds.** With node filtering, even a full planet fits in 25 GB. Without this flag, node locations are written to a `node_locations.tmp` file that can reach 134 GB for planet. |
-| `--tmpdir DIR` | output dir | Place `node_locations.tmp` on a different filesystem. Only relevant in file-backed mode (without `--in-memory`). Use this to put the temp file on fast local NVMe when the output directory is on slower storage. Ignored when `--in-memory` is used. |
+| `--tmpdir DIR` | (in-memory) | Switch to file-backed mode and place `node_locations.tmp` on the specified filesystem. By default, the builder stores node locations in RAM (25 GB peak for planet). Use `--tmpdir` only on machines with very limited RAM -- it creates a temp file (~18 GB for planet with node filtering) and is significantly slower due to random I/O. Place on NVMe, not spinning disk. |
 | `--max-vertices N` | 50000 | Maximum vertices per admin boundary polygon after Douglas-Peucker simplification. Higher values preserve more coastline detail but increase index size. Capped at 65535 (uint16_t). The upstream default of 500 destroys polygon topology and should never be used. |
 | `--verbose` | off | Per-polygon diagnostic output, pipeline summary counters, memory stats at each build phase, and per-phase timing breakdown. Recommended for monitoring large builds. |
 | `--debug` | off | Enable osmium assembler problem reporting. Very noisy output, useful only for diagnosing specific polygon assembly failures. Implies `--verbose`. |
@@ -115,8 +114,8 @@ The builder runs three passes over each PBF file:
 
 ### Memory and disk requirements
 
-| Extract | PBF Size | Index Size | Build time | Peak RAM (`--in-memory`) |
-|---------|----------|------------|------------|--------------------------|
+| Extract | PBF Size | Index Size | Build time | Peak RAM |
+|---------|----------|------------|------------|----------|
 | Belgium | 765 MB | ~200 MB | 29s | 2 GB |
 | France | 4.7 GB | ~1 GB | ~5 min | 8 GB |
 | Italy | 2.1 GB | ~500 MB | ~3 min | 5 GB |
@@ -125,17 +124,15 @@ The builder runs three passes over each PBF file:
 
 Build times measured on a single machine (94 GB RAM, 4 vCPUs, NVMe storage).
 
-**Recommendation: always use `--in-memory`.** Node filtering (Pass 1.5) automatically reduces the node location index from ~134 GB to ~11 GB for planet. Even the full planet build peaks at 25 GB. Any machine with 32+ GB of RAM can build the planet.
+Node locations are stored **in memory by default**. Node filtering (Pass 1.5) automatically reduces the node location index from ~134 GB to ~11 GB for planet. The full planet build peaks at 25 GB. Any machine with 32+ GB of RAM can build the entire planet.
 
-**File-backed mode** (without `--in-memory`) creates a `node_locations.tmp` file for node locations. Node filtering (Pass 1.5) applies here too, so the temp file is ~18 GB for planet (only needed nodes), not the full 134 GB it would be without filtering. Still, `--in-memory` is faster because it eliminates all temp file I/O:
-- Place the temp file on NVMe, not spinning disk (`--tmpdir /fast/nvme/tmp`)
-- The output directory can be on slower storage since index writes are sequential
+For machines with less RAM, `--tmpdir` switches to file-backed mode and creates a `node_locations.tmp` file (~18 GB for planet). This is significantly slower due to random I/O -- place the temp file on NVMe, not spinning disk.
 
 **Disk space for index output:** The output directory needs ~20 GB for planet, ~7 GB for Europe. This can be on any filesystem -- writes are sequential and not performance-critical.
 
 ### Storage layout recommendations
 
-For best performance, separate your storage by access pattern:
+For builds using `--tmpdir` (file-backed mode), separate your storage by access pattern:
 
 | Data | Access pattern | Recommended storage |
 |------|---------------|-------------------|
@@ -143,25 +140,25 @@ For best performance, separate your storage by access pattern:
 | Node temp file (`--tmpdir`) | Heavy random I/O | **NVMe required** for large builds |
 | Index output directory | Sequential write | Any (written once, read at startup) |
 
-For `--in-memory` builds (recommended), the temp file is not created and storage choice doesn't matter beyond the PBF input.
+With the default in-memory mode, no temp file is created and storage choice only matters for the PBF input and index output.
 
 ### Examples
 
 ```bash
-# Recommended: planet build with in-memory node index
-./build-index /data/index planet-latest.osm.pbf --in-memory --verbose
+# Planet build (in-memory by default, ~25 GB peak RAM, ~57 min)
+./build-index /data/index planet-latest.osm.pbf --verbose
 
 # Europe with diagnostics
-./build-index /data/index europe-latest.osm.pbf --in-memory --verbose
+./build-index /data/index europe-latest.osm.pbf --verbose
 
 # Multiple PBFs (merged into single index)
-./build-index /data/index france.osm.pbf germany.osm.pbf --in-memory
+./build-index /data/index france.osm.pbf germany.osm.pbf
 
-# File-backed: temp file on local NVMe, output to network storage
-./build-index /mnt/nfs/index europe-latest.osm.pbf --tmpdir /mnt/nvme/tmp --verbose
+# Low-RAM machine: file-backed mode, temp file on local NVMe
+./build-index /data/index europe-latest.osm.pbf --tmpdir /mnt/nvme/tmp --verbose
 
 # Custom simplification limit (preserve more coastline detail)
-./build-index /data/index planet-latest.osm.pbf --in-memory --max-vertices 65535
+./build-index /data/index planet-latest.osm.pbf --max-vertices 65535
 ```
 
 ### Index output
