@@ -1,12 +1,12 @@
-# Traccar Geocoder
+# nomirevturbo
 
-A fast, self-hosted reverse geocoding service built from OpenStreetMap data. Given latitude and longitude coordinates, it returns the nearest street address including house number, street name, city, state, county, postcode, and country.
+A turbocharged, self-hosted reverse geocoding service built from OpenStreetMap data. Full planet index in under an hour on a single machine. Nominatim-compatible API, no PostgreSQL required.
 
-This is a fork of [traccar/traccar-geocoder](https://github.com/traccar/traccar-geocoder) with polygon repair, performance optimizations, security fixes, and a country-boundaries fallback for continent-level PBF extracts. See [CHANGELOG.md](CHANGELOG.md) for details.
+Given latitude and longitude coordinates, it returns the nearest street address including house number, street name, city, state, county, postcode, and country.
 
 ## Features
 
-- Street-level reverse geocoding from OSM data
+- Fast reverse geocoding from OSM data (full planet in under an hour)
 - Address point, street name, and address interpolation lookup
 - Administrative boundary resolution (country, state, county, city, postcode)
 - S2Builder polygon repair pipeline -- never silently drops admin boundaries
@@ -24,16 +24,16 @@ This is a fork of [traccar/traccar-geocoder](https://github.com/traccar/traccar-
 ```yaml
 services:
   geocoder:
-    image: traccar/traccar-geocoder
+    image: gplv2/nomirevturbo
     environment:
       - PBF_URLS=https://download.geofabrik.de/europe/monaco-latest.osm.pbf
     ports:
       - "3000:3000"
     volumes:
-      - geocoder-data:/data
+      - nomirevturbo-data:/data
 
 volumes:
-  geocoder-data:
+  nomirevturbo-data:
 ```
 
 ```bash
@@ -45,43 +45,40 @@ docker compose up
 ```bash
 # All-in-one: download, build index, and serve
 docker run -e PBF_URLS="https://download.geofabrik.de/europe-latest.osm.pbf" \
-  -v geocoder-data:/data -p 3000:3000 traccar/traccar-geocoder
+  -v nomirevturbo-data:/data -p 3000:3000 gplv2/nomirevturbo
 
 # Build index only
 docker run -e PBF_URLS="https://download.geofabrik.de/europe-latest.osm.pbf" \
-  -v geocoder-data:/data traccar/traccar-geocoder build
+  -v nomirevturbo-data:/data gplv2/nomirevturbo build
 
 # Serve only (from pre-built index)
-docker run -v geocoder-data:/data -p 3000:3000 traccar/traccar-geocoder serve
+docker run -v nomirevturbo-data:/data -p 3000:3000 gplv2/nomirevturbo serve
 
 # Multiple PBF files
 docker run -e PBF_URLS="https://download.geofabrik.de/europe/france-latest.osm.pbf https://download.geofabrik.de/europe/germany-latest.osm.pbf" \
-  -v geocoder-data:/data -p 3000:3000 traccar/traccar-geocoder
+  -v nomirevturbo-data:/data -p 3000:3000 gplv2/nomirevturbo
 
 # With automatic HTTPS
 docker run -e PBF_URLS="https://planet.openstreetmap.org/pbf/planet-latest.osm.pbf" \
   -e DOMAIN=geocoder.example.com \
-  -v geocoder-data:/data -p 443:443 traccar/traccar-geocoder
+  -v nomirevturbo-data:/data -p 443:443 gplv2/nomirevturbo
 ```
 
 PBF files can be downloaded from [Geofabrik](https://download.geofabrik.de/).
 
 ### Disk and Memory Requirements
 
-| Extract | PBF Size | Index Size | Temp file | RAM (file-backed) | RAM (--in-memory) |
-|---------|----------|------------|-----------|--------------------|--------------------|
-| Monaco | 2 MB | ~10 MB | ~50 MB | < 1 GB | < 1 GB |
-| Belgium | 765 MB | ~200 MB | ~4 GB | 2 GB | 4 GB |
-| France | 4.7 GB | ~1 GB | ~20 GB | 4 GB | 20 GB |
-| Italy | 2.1 GB | ~500 MB | ~10 GB | 4 GB | 12 GB |
-| Europe | 32 GB | ~7 GB | ~55 GB | 8 GB + swap | 74 GB (measured) |
-| Planet | ~70 GB | ~18 GB | ~134 GB | 16 GB + swap | ~174 GB (estimated) |
+| Extract | PBF Size | Index Size | Build time | Peak RAM (--in-memory) |
+|---------|----------|------------|------------|------------------------|
+| Belgium | 765 MB | ~200 MB | 29s | 2 GB |
+| France | 4.7 GB | ~1 GB | ~5 min | 8 GB |
+| Italy | 2.1 GB | ~500 MB | ~3 min | 5 GB |
+| Europe | 32 GB | ~7 GB | 22 min | 11 GB |
+| Planet | 86 GB | ~20 GB | ~57 min | 25 GB |
 
-RAM estimates for `--in-memory` are based on ~16 bytes per node for the SparseMemArray index. Europe has 3.7 billion nodes (55 GB index + 19 GB other structures). Planet has ~9 billion nodes (134 GB index + ~40 GB other structures).
+Build times measured on a single machine (94 GB RAM, 4 vCPUs, NVMe storage) using `--in-memory` mode. Node filtering (Pass 1.5) automatically skips ~89% of nodes that aren't referenced by any street, address, or admin boundary, reducing memory from ~134 GB to ~11 GB for the node location index.
 
-The "Temp file" column shows the `node_locations.tmp` size when using the default file-backed mode. For large builds on machines with limited RAM, use `--tmpdir` to place this file on fast local storage (NVMe) rather than the output directory.
-
-For high performance, use NVMe storage or a machine with enough RAM for `--in-memory` mode.
+For machines with limited RAM, the default file-backed mode uses a temporary file for node locations. Use `--tmpdir` to place it on fast local storage (NVMe).
 
 ## API
 

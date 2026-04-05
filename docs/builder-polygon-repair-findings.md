@@ -492,9 +492,9 @@ There are **two distinct problems** causing missing admin boundary data, and the
 
 Building from a planet PBF (`planet-latest.osm.pbf`) would avoid the second problem entirely, since all ways and nodes are present. However, planet builds are significantly more resource-intensive (65+ GB PBF, requires 100+ GB RAM for in-memory index). For most deployments using continent or regional extracts, the server-side fallback is the practical solution.
 
-### Why this fork produces more complete results
+### Why nomirevturbo produces more complete results
 
-The upstream project was made aware of the missing country data issue through [PR #5](https://github.com/traccar/traccar-geocoder/pull/5). The maintainer's response was to "add it to the index instead" -- suggesting the builder should handle it during index creation. This reflects a misunderstanding of the problem.
+The upstream project was made aware of the missing country data issue through [PR #5](https://github.com/traccar/traccar-geocoder/pull/5). The response was to "add it to the index instead" -- suggesting the builder should handle it during index creation. This reflects a misunderstanding of the problem.
 
 The index is built from PBF data. If the PBF data is incomplete -- which is inherent to any non-planet extract -- the builder cannot synthesize what isn't there. You cannot index data that doesn't exist in your source file.
 

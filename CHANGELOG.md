@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-This is a fork of [traccar/traccar-geocoder](https://github.com/traccar/traccar-geocoder).
+Originally forked from [traccar/traccar-geocoder](https://github.com/traccar/traccar-geocoder).
 Changes below are relative to the upstream project.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
