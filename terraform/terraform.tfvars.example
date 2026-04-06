@@ -11,6 +11,9 @@ os_disk_storage   = "local"
 data_disk_size    = 300       # GB - PBF + index + scratch
 data_disk_storage = "vmdata"
 
-iso_file          = "local:iso/debian-13.3.0-amd64-netinst.iso"
+cloud_image_storage = "local" # Where to store the Debian cloud image
+
 network_bridge    = "vmbr0"
 resource_pool     = "AI"
+
+ssh_public_key    = "ssh-ed25519 AAAA... you@host"

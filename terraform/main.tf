@@ -9,6 +9,75 @@ provider "proxmox" {
   }
 }
 
+# ── Cloud image (downloaded once, reused for all VMs) ────────────────────
+
+resource "proxmox_download_file" "debian13_cloud" {
+  content_type = "iso"
+  datastore_id = var.cloud_image_storage
+  node_name    = var.proxmox_node
+  file_name    = "debian-13-generic-amd64.img"
+
+  url = "https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-generic-amd64-daily.qcow2"
+}
+
+# ── Cloud-init config ────────────────────────────────────────────────────
+
+resource "proxmox_virtual_environment_file" "cloud_config" {
+  content_type = "snippets"
+  datastore_id = var.cloud_image_storage
+  node_name    = var.proxmox_node
+
+  source_raw {
+    data = <<-EOF
+      #cloud-config
+      hostname: ${var.vm_name}
+      fqdn: ${var.vm_name}.local
+
+      users:
+        - name: root
+          lock_passwd: false
+          ssh_authorized_keys:
+            - ${var.ssh_public_key}
+        - name: glenn
+          groups: sudo
+          shell: /bin/bash
+          sudo: ALL=(ALL) NOPASSWD:ALL
+          ssh_authorized_keys:
+            - ${var.ssh_public_key}
+
+      # Format and mount the data disk
+      disk_setup:
+        /dev/sdb:
+          table_type: gpt
+          layout: true
+          overwrite: false
+
+      fs_setup:
+        - label: data
+          filesystem: ext4
+          device: /dev/sdb1
+          overwrite: false
+
+      mounts:
+        - ["/dev/sdb1", "/data", "ext4", "defaults,noatime", "0", "2"]
+
+      # Install qemu-guest-agent so Terraform can read the IP
+      packages:
+        - qemu-guest-agent
+        - python3
+        - sudo
+
+      runcmd:
+        - systemctl enable --now qemu-guest-agent
+        - mkdir -p /data
+    EOF
+
+    file_name = "${var.vm_name}-cloud-config.yaml"
+  }
+}
+
+# ── VM ───────────────────────────────────────────────────────────────────
+
 resource "proxmox_virtual_environment_vm" "geocoder" {
   name      = var.vm_name
   node_name = var.proxmox_node
@@ -28,16 +97,12 @@ resource "proxmox_virtual_environment_vm" "geocoder" {
     dedicated = var.vm_memory
   }
 
-  # Boot from ISO for initial install
-  cdrom {
-    file_id = var.iso_file
-  }
-
-  # OS disk
+  # OS disk - cloned from cloud image
   disk {
     datastore_id = var.os_disk_storage
     interface    = "scsi0"
     size         = var.os_disk_size
+    file_id      = proxmox_download_file.debian13_cloud.id
     file_format  = "raw"
   }
 
@@ -58,13 +123,22 @@ resource "proxmox_virtual_environment_vm" "geocoder" {
     model  = "virtio"
   }
 
-  # Boot order: disk first, then cdrom (after install, remove ISO)
-  boot_order = ["scsi0", "ide2"]
+  # Boot from cloud image disk
+  boot_order = ["scsi0"]
+  bios       = "seabios"
 
-  # BIOS
-  bios = "seabios"
+  # Cloud-init
+  initialization {
+    user_data_file_id = proxmox_virtual_environment_file.cloud_config.id
 
-  # Agent
+    ip_config {
+      ipv4 {
+        address = "dhcp"
+      }
+    }
+  }
+
+  # Guest agent (cloud-init installs it)
   agent {
     enabled = true
   }
@@ -73,6 +147,8 @@ resource "proxmox_virtual_environment_vm" "geocoder" {
     type = "l26"
   }
 }
+
+# ── Outputs ──────────────────────────────────────────────────────────────
 
 output "vm_id" {
   description = "Proxmox VM ID"
@@ -86,5 +162,5 @@ output "vm_name" {
 
 output "vm_ipv4" {
   description = "VM IPv4 address (available after guest agent starts)"
-  value       = try(proxmox_virtual_environment_vm.geocoder.ipv4_addresses, "pending - install OS and start qemu-guest-agent")
+  value       = try(proxmox_virtual_environment_vm.geocoder.ipv4_addresses, ["pending - waiting for guest agent"])
 }

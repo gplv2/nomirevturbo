@@ -64,10 +64,10 @@ variable "data_disk_storage" {
   default     = "vmdata"
 }
 
-variable "iso_file" {
-  description = "Debian ISO image on Proxmox local storage"
+variable "cloud_image_storage" {
+  description = "Proxmox storage pool for cloud images (must support snippets/images)"
   type        = string
-  default     = "local:iso/debian-13.3.0-amd64-netinst.iso"
+  default     = "local"
 }
 
 variable "network_bridge" {
@@ -85,5 +85,5 @@ variable "resource_pool" {
 variable "ssh_public_key" {
   description = "SSH public key for root access"
   type        = string
-  default     = ""
+  default     = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIM8KqeKSv4/nJomZL+8xFrmGZdVX4w/VqACF12a5W3+Q glenn@zenny"
 }
