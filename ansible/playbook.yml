@@ -18,20 +18,30 @@
         create_home: false
         system: true
 
+    - name: Check if /data is already mounted
+      ansible.builtin.command: mountpoint -q /data
+      register: data_mounted
+      changed_when: false
+      failed_when: false
+
     - name: Format data disk if needed
       ansible.builtin.filesystem:
-        dev: /dev/sdb
+        dev: /dev/sdb1
         fstype: ext4
-      when: ansible_devices.sdb is defined
+      when:
+        - data_mounted.rc != 0
+        - ansible_devices.sdb is defined
 
     - name: Mount data disk at /data
       ansible.posix.mount:
         path: /data
-        src: /dev/sdb
+        src: /dev/sdb1
         fstype: ext4
         state: mounted
         opts: defaults,noatime
-      when: ansible_devices.sdb is defined
+      when:
+        - data_mounted.rc != 0
+        - ansible_devices.sdb is defined
 
     - name: Install nginx
       ansible.builtin.apt:

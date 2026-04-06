@@ -5,6 +5,7 @@
       - build-essential
       - cmake
       - ninja-build
+      - git
       - libosmium2-dev
       - libprotozero-dev
       - libabsl-dev
@@ -13,6 +14,9 @@
       - libbz2-dev
       - libexpat1-dev
       - liblz4-dev
+      - aria2
+      - curl
+      - cron
     state: present
 
 - name: Check if s2geometry is installed

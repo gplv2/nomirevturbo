@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>nomirevturbo — {{ tileserver_nginx_server_name.split() | first }}</title>
+<title>nomirevturbo — {{ (tileserver_nginx_server_name | default(ansible_facts['hostname'])).split() | first }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.5.0/ol.css">
 <style>
@@ -29,7 +29,7 @@
 </head>
 <body>
 
-<h1>nomirevturbo — {{ tileserver_nginx_server_name.split() | first }}</h1>
+<h1>nomirevturbo — {{ (tileserver_nginx_server_name | default(ansible_facts['hostname'])).split() | first }}</h1>
 <div id="map"></div>
 <div class="panel">
   <div class="search-row">

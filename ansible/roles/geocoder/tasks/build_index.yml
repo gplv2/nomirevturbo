@@ -44,13 +44,15 @@
   failed_when: false
 
 - name: Build geocoder index from Europe PBF (OS disk for speed)
-  ansible.builtin.command:
+  ansible.builtin.shell:
     cmd: >
       {{ geocoder_install_dir }}/build-index
       {{ geocoder_build_dir }}
       {{ geocoder_europe_pbf_path }}
       --street-level {{ geocoder_street_level }}
       --admin-level {{ geocoder_admin_level }}
+      --verbose
+      2>&1 | tee {{ geocoder_data_dir }}/build.log
   when: not geocoder_index.stat.exists
   changed_when: true
   timeout: 86400

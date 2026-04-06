@@ -1,0 +1,15 @@
+---
+- name: Check if geocoder.json auth database exists
+  ansible.builtin.stat:
+    path: "{{ geocoder_index_dir }}/geocoder.json"
+  register: geocoder_auth_file
+
+- name: Deploy geocoder.json auth database
+  ansible.builtin.copy:
+    content: "{{ geocoder_auth_db | to_nice_json }}"
+    dest: "{{ geocoder_index_dir }}/geocoder.json"
+    owner: "{{ geocoder_user }}"
+    group: "{{ geocoder_group }}"
+    mode: "0600"
+  when: not geocoder_auth_file.stat.exists
+  notify: Restart geocoder

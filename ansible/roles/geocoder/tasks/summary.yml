@@ -1,0 +1,39 @@
+---
+- name: Check if build log exists
+  ansible.builtin.stat:
+    path: "{{ geocoder_data_dir }}/build.log"
+  register: geocoder_build_log
+
+- name: Show build log
+  ansible.builtin.command:
+    cmd: cat {{ geocoder_data_dir }}/build.log
+  register: geocoder_log_output
+  changed_when: false
+  when: geocoder_build_log.stat.exists
+
+- name: Display build log
+  ansible.builtin.debug:
+    msg: "{{ geocoder_log_output.stdout_lines }}"
+  when: geocoder_build_log.stat.exists
+
+- name: Display geocoder endpoints
+  ansible.builtin.debug:
+    msg:
+      - ""
+      - "=========================================="
+      - "  nomirevturbo geocoder is ready"
+      - "=========================================="
+      - ""
+      - "Test page:"
+      - "  http://{{ ansible_facts['default_ipv4']['address'] }}/testgeocode"
+      - ""
+      - "API examples:"
+      - "  http://{{ ansible_facts['default_ipv4']['address'] }}/geocode/reverse?lat=48.8566&lon=2.3522&key={{ geocoder_api_key }}  (Paris)"
+      - "  http://{{ ansible_facts['default_ipv4']['address'] }}/geocode/reverse?lat=50.8503&lon=4.3517&key={{ geocoder_api_key }}  (Brussels)"
+      - "  http://{{ ansible_facts['default_ipv4']['address'] }}/geocode/reverse?lat=52.3676&lon=4.9041&key={{ geocoder_api_key }}  (Amsterdam)"
+      - ""
+      - "Direct API (bypass nginx):"
+      - "  http://{{ ansible_facts['default_ipv4']['address'] }}:{{ geocoder_port }}/reverse?lat=48.8566&lon=2.3522&key={{ geocoder_api_key }}"
+      - ""
+      - "Build log: {{ geocoder_data_dir }}/build.log"
+      - ""

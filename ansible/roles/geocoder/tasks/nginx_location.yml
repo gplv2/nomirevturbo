@@ -7,6 +7,14 @@
     group: root
     mode: "0755"
 
+- name: Create geocoder web directory
+  ansible.builtin.file:
+    path: "{{ geocoder_web_dir }}"
+    state: directory
+    owner: "{{ geocoder_user }}"
+    group: "{{ geocoder_group }}"
+    mode: "0755"
+
 - name: Deploy geocoder http-level config (geo map + rate limit zone)
   ansible.builtin.template:
     src: geocoder-nginx-http.conf.j2
@@ -28,7 +36,7 @@
 - name: Deploy geocoder test page
   ansible.builtin.template:
     src: testgeocode.html.j2
-    dest: "{{ tileserver_base_dir | default('/data/tileserver') }}/testgeocode.html"
+    dest: "{{ geocoder_web_dir }}/testgeocode.html"
     owner: "{{ geocoder_user }}"
     group: "{{ geocoder_group }}"
     mode: "0644"

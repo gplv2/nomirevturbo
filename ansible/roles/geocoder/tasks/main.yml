@@ -15,6 +15,9 @@
 - name: Include index build tasks
   ansible.builtin.include_tasks: build_index.yml
 
+- name: Include auth database tasks
+  ansible.builtin.include_tasks: auth.yml
+
 - name: Include service tasks
   ansible.builtin.include_tasks: service.yml
 
@@ -23,3 +26,6 @@
 
 - name: Include cron tasks
   ansible.builtin.include_tasks: cron.yml
+
+- name: Include summary tasks
+  ansible.builtin.include_tasks: summary.yml

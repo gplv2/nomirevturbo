@@ -12,6 +12,7 @@ geocoder_install_dir: /opt/geocoder
 geocoder_data_dir: /data/geocoder
 geocoder_index_dir: /data/geocoder/index
 geocoder_build_dir: /var/tmp/geocoder-build
+geocoder_web_dir: /var/www/geocoder
 
 # Source
 geocoder_repo: "https://github.com/gplv2/nomirevturbo.git"
@@ -29,3 +30,16 @@ geocoder_admin_level: 10
 # PBF source — full Europe extract for complete admin boundaries
 geocoder_europe_pbf_url: "https://download.geofabrik.de/europe-latest.osm.pbf"
 geocoder_europe_pbf_path: "/var/tmp/europe-latest.osm.pbf"
+
+# Auth database — default test credentials (override in inventory for production)
+geocoder_api_key: "testkey123"
+geocoder_auth_db:
+  users:
+    test:
+      password_hash: "dummy"
+      admin: true
+      rate_per_second: 100
+      rate_per_day: 100000
+      rate_by_ip: false
+  tokens:
+    testkey123: "test"
