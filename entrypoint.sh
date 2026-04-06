@@ -1,4 +1,6 @@
 #!/bin/sh
+# Copyright 2026 Glenn Plas / Bitless BVBA
+# SPDX-License-Identifier: Apache-2.0
 set -e
 
 DATA_DIR="${DATA_DIR:-/data}"

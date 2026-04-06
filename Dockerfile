@@ -1,3 +1,6 @@
+# Copyright 2026 Glenn Plas / Bitless BVBA
+# SPDX-License-Identifier: Apache-2.0
+
 # Stage 1: Build S2 geometry library + C++ indexer
 FROM debian:trixie-slim AS builder-cpp
 

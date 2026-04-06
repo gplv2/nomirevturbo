@@ -1,3 +1,6 @@
+# Copyright 2026 Glenn Plas / Bitless BVBA
+# SPDX-License-Identifier: Apache-2.0
+
 variable "proxmox_endpoint" {
   description = "Proxmox API endpoint URL"
   type        = string

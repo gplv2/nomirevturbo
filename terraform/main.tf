@@ -1,3 +1,6 @@
+# Copyright 2026 Glenn Plas / Bitless BVBA
+# SPDX-License-Identifier: Apache-2.0
+
 provider "proxmox" {
   endpoint  = var.proxmox_endpoint
   api_token = var.proxmox_api_token
