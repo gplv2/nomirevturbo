@@ -1,0 +1,16 @@
+proxmox_endpoint  = "https://192.168.0.238:8006"
+proxmox_api_token = "root@pam!tiler=YOUR_TOKEN_SECRET_HERE"
+proxmox_node      = "pve"
+
+vm_name           = "geocoder-test"
+vm_cores          = 8
+vm_memory         = 32768     # 32 GB
+
+os_disk_size      = 50        # GB - OS + build tools
+os_disk_storage   = "local"
+data_disk_size    = 300       # GB - PBF + index + scratch
+data_disk_storage = "vmdata"
+
+iso_file          = "local:iso/debian-13.3.0-amd64-netinst.iso"
+network_bridge    = "vmbr0"
+resource_pool     = "AI"

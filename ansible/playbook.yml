@@ -1,0 +1,63 @@
+---
+- name: Deploy nomirevturbo geocoder
+  hosts: all
+  become: true
+
+  pre_tasks:
+    - name: Create tileserver group
+      ansible.builtin.group:
+        name: tileserver
+        state: present
+
+    - name: Create tileserver user
+      ansible.builtin.user:
+        name: tileserver
+        group: tileserver
+        shell: /usr/sbin/nologin
+        home: /opt/geocoder
+        create_home: false
+        system: true
+
+    - name: Format data disk if needed
+      ansible.builtin.filesystem:
+        dev: /dev/sdb
+        fstype: ext4
+      when: ansible_devices.sdb is defined
+
+    - name: Mount data disk at /data
+      ansible.posix.mount:
+        path: /data
+        src: /dev/sdb
+        fstype: ext4
+        state: mounted
+        opts: defaults,noatime
+      when: ansible_devices.sdb is defined
+
+    - name: Install nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        update_cache: true
+
+    - name: Create nginx locations.d directory
+      ansible.builtin.file:
+        path: /etc/nginx/locations.d
+        state: directory
+        mode: "0755"
+
+    - name: Include locations.d in nginx default server
+      ansible.builtin.lineinfile:
+        path: /etc/nginx/sites-enabled/default
+        insertafter: "server_name _;"
+        line: "        include /etc/nginx/locations.d/*.conf;"
+        state: present
+      notify: Reload nginx
+
+  roles:
+    - geocoder
+
+  handlers:
+    - name: Reload nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: reloaded
