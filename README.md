@@ -32,6 +32,7 @@ curl "http://localhost:3000/reverse?lat=48.8566&lon=2.3522&key=YOUR_KEY"
 ```json
 {
   "display_name": "Rue de Rivoli 1, 75001 Paris, France",
+  "display_name_compact": "Rue de Rivoli 1, 75001 Paris, FR",
   "address": {
     "house_number": "1",
     "road": "Rue de Rivoli",
@@ -46,6 +47,8 @@ curl "http://localhost:3000/reverse?lat=48.8566&lon=2.3522&key=YOUR_KEY"
 ```
 
 Address fields include: house number, street name, city, state, county, postcode, country, and country code. Fields are omitted when not available. The `display_name` is formatted according to the country's addressing convention (number after street in Europe, before street in the US).
+
+`display_name_compact` is identical to `display_name` but replaces the full country name with the 2-letter ISO country code. Useful for countries with long multilingual names like Belgium ("België / Belgique / Belgien" becomes "BE").
 
 ## Architecture
 
