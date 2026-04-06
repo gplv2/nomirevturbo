@@ -1,9 +1,35 @@
-Glenn Plas glenn@bitless.be - Bitless BV
-  - Flat pair vector optimization (49x planet build speedup)
-  - Pass 1.5 node bitmap filtering (89% node skip rate)
-  - Three-tier S2 polygon repair pipeline
-  - Write-phase memory optimization
-  - Planet build: 44h 46m → 54m 38s, 94GB+swap → 25GB zero swap
+Glenn Plas <glenn@bitless.be> - Bitless BV
+
+  Builder (C++):
+  - Three-tier S2 polygon repair pipeline (S2Loop > S2Builder > bbox fallback)
+  - Pass 1.5 node bitmap filtering (89% node skip, planet fits in 25 GB)
+  - Flat sorted pair vectors replacing cell hash maps (37 GB -> 5.5 GB)
+  - Write-phase memory optimization (progressive release, merge-scan writes)
+  - Configurable simplification limit (--max-vertices, default 50K)
+  - In-memory node locations as default, --tmpdir for file-backed fallback
+  - Vector pre-allocation heuristics with shrink_to_fit
+  - Per-phase build timers, throughput reporting, live memory diagnostics
+  - Planet build: 44h 46m -> 54m 38s, 94 GB+swap -> 25 GB zero swap
+
+  Server (Rust):
+  - Country-boundaries fallback for continent/regional PBF extracts
+  - display_name_compact response field (ISO country code instead of full name)
+  - Fixed house number interpolation bias (sqrt for arc length ratios)
+  - Fixed rate limiter race condition (atomics -> Mutex)
+  - Fixed street deduplication hash collisions in dense areas
+  - Rewritten format_address with country-specific formatting rules
+  - Precomputed mmap slice lengths, bounds checking on all mmap accesses
+  - Input validation for coordinates (NaN, infinity, out of range)
+  - Token-based auth system with rate limiting (server/src/auth.rs)
+  - 47 unit tests
+  - Security hardening (TLS dependency updates, clippy, rustfmt)
+
+  Infrastructure:
+  - Terraform config for Proxmox cloud-init VMs (headless Debian 13)
+  - Ansible role for full deployment lifecycle (standalone, no dependencies)
+  - Dockerfile rewritten for Debian 13 (Trixie) with s2geometry from source
+  - Pre-push hook (clippy, fmt, audit)
 
 Original codebase: Traccar traccar-geocoder (Apache 2.0)
   https://github.com/traccar/traccar-geocoder
+  Fork point: commit 6feb14e (2026-03-24)
