@@ -1,3 +1,8 @@
+// Copyright 2026 Glenn Plas / Bitless BVBA
+// SPDX-License-Identifier: Apache-2.0
+//
+// New file, not present in original traccar/traccar-geocoder.
+
 use axum::extract::{Form, Path, State};
 use axum::http::header::SET_COOKIE;
 use axum::http::HeaderMap;

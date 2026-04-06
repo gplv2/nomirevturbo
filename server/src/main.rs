@@ -1,3 +1,10 @@
+// Copyright 2024 Traccar Ltd (original)
+// Copyright 2026 Glenn Plas / Bitless BVBA (modifications)
+// SPDX-License-Identifier: Apache-2.0
+//
+// Modified from traccar/traccar-geocoder.
+// See NOTICE for details of changes.
+
 mod auth;
 
 use axum::extract::Query;

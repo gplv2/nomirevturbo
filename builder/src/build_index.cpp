@@ -1,3 +1,10 @@
+// Copyright 2024 Traccar Ltd (original)
+// Copyright 2026 Glenn Plas / Bitless BVBA (substantial modifications)
+// SPDX-License-Identifier: Apache-2.0
+//
+// Substantially rewritten from traccar/traccar-geocoder.
+// See NOTICE for details of changes.
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
