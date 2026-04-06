@@ -55,13 +55,46 @@ Server (server/src/main.rs):
   RUSTSEC-2026-0048, RUSTSEC-2026-0049)
 - 40 unit tests (format_address, auth, rate limiter, coordinates, fallback)
 
+Server (server/src/main.rs) -- correctness review:
+- Fixed house number interpolation: switched from squared distances to true
+  arc lengths (sqrt) for path position ratios, correcting a bias toward
+  longer segments in unequal-length interpolation ways
+- Doc comments on dist_sq explaining equirectangular approximation, error
+  bounds at all latitudes (sub-meter at 75m radius even at 85N), and proof
+  that the approximation is conservative (no false negatives)
+- Doc comments on point_in_polygon explaining f32 precision adequacy for
+  admin boundaries and vertical edge safety
+- Doc comments on seen_streets direct-mapped cache explaining idempotency
+  and collision behavior
+- Analytical tests: dist_sq vs haversine error table, conservative search
+  radius proof, interpolation sqrt vs squared ratio verification
+- 43 unit tests (was 40)
+
 Server (server/src/auth.rs):
 - #[serde(default)] on users and tokens fields
 - Applied clippy lints and rustfmt formatting
 
+Licensing:
+- Apache 2.0 copyright headers added to all source files per Section 4(b)
+- SPDX-License-Identifier tags on build_index.cpp, main.rs, auth.rs
+- AUTHORS file with contributor details
+
+Design documents:
+- docs/zlevel-design.md: Z-level/layer awareness design for bridge and
+  tunnel disambiguation (parallel file approach, altitude-based scoring,
+  backward compatibility contract)
+
 Build infrastructure:
 - Pre-push hook (cargo clippy, fmt, audit)
 - Pre-commit hook (blocks CLAUDE.md from commits)
+
+Deployment:
+- Terraform config for Proxmox test VMs (bpg/proxmox provider, cloud-init,
+  headless Debian 13 provisioning, auto-generated Ansible inventory)
+- Ansible role made standalone (removed tileserver dependencies, added
+  auth.yml, summary.yml with build log and endpoint URLs, ansible.cfg)
+- Ansible playbook with pre-tasks for user/group, data disk, nginx setup
+- Dockerfile updated to Debian 13 (Trixie) with s2geometry from source
 
 Deployment (entrypoint.sh):
 - Positional parameters for safe argument passing
@@ -70,3 +103,4 @@ Performance (planet PBF, 86 GB):
 - Original upstream: not tested at planet scale
 - Previous file-backed build: 44h 46m, 94 GB RAM + 64 GB swap
 - Current --in-memory build: ~57 min, 25 GB peak RSS, zero swap
+- Europe build on 32 GB VM: 17m 13s, 11 GB peak RSS
