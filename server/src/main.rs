@@ -650,8 +650,10 @@ impl Index {
                 .map(|c| String::from_utf8_lossy(&c).into_owned()),
         };
         let display_name = format_address(&address);
+        let display_name_compact = format_address_compact(&address);
         Address {
             display_name,
+            display_name_compact,
             address,
         }
     }
@@ -1062,6 +1064,8 @@ struct AddressDetails<'a> {
 struct Address<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_name_compact: Option<String>,
     address: AddressDetails<'a>,
 }
 
@@ -1163,6 +1167,100 @@ fn format_address(addr: &AddressDetails<'_>) -> Option<String> {
             result.push_str(", ");
         }
         result.push_str(country);
+    }
+
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
+}
+
+/// Like `format_address` but replaces the full country name with the 2-letter
+/// ISO country code. Produces shorter strings without losing information.
+/// Useful for countries with long multilingual names like Belgium
+/// ("België / Belgique / Belgien" becomes "BE").
+fn format_address_compact(addr: &AddressDetails<'_>) -> Option<String> {
+    if addr.road.is_none() && addr.city.is_none() && addr.country_code.is_none() {
+        return None;
+    }
+
+    let (number_after, postcode_before_city, include_state) =
+        format_rules(addr.country_code.as_deref());
+    let mut result = String::with_capacity(120);
+
+    // Street + house number (identical to format_address)
+    if let Some(road) = addr.road {
+        if let Some(ref hn) = addr.house_number {
+            if number_after {
+                result.push_str(road);
+                result.push(' ');
+                result.push_str(hn);
+            } else {
+                result.push_str(hn);
+                result.push(' ');
+                result.push_str(road);
+            }
+        } else {
+            result.push_str(road);
+        }
+    }
+
+    // City + postcode + state (identical to format_address)
+    let before_city = result.len();
+    if !result.is_empty() {
+        result.push_str(", ");
+    }
+    let city_block_start = result.len();
+
+    if postcode_before_city {
+        if let Some(pc) = addr.postcode {
+            result.push_str(pc);
+        }
+        if let Some(city) = addr.city {
+            if result.len() > city_block_start {
+                result.push(' ');
+            }
+            result.push_str(city);
+        }
+        if include_state {
+            if let Some(state) = addr.state {
+                if result.len() > city_block_start {
+                    result.push_str(", ");
+                }
+                result.push_str(state);
+            }
+        }
+    } else {
+        if let Some(city) = addr.city {
+            result.push_str(city);
+        }
+        if include_state {
+            if let Some(state) = addr.state {
+                if result.len() > city_block_start {
+                    result.push_str(", ");
+                }
+                result.push_str(state);
+            }
+        }
+        if let Some(pc) = addr.postcode {
+            if result.len() > city_block_start {
+                result.push(' ');
+            }
+            result.push_str(pc);
+        }
+    }
+
+    if result.len() == city_block_start {
+        result.truncate(before_city);
+    }
+
+    // Country code instead of full country name
+    if let Some(ref cc) = addr.country_code {
+        if !result.is_empty() {
+            result.push_str(", ");
+        }
+        result.push_str(cc);
     }
 
     if result.is_empty() {
@@ -1695,6 +1793,7 @@ mod tests {
     fn address_serializes_country_code_as_string() {
         let a = Address {
             display_name: None,
+            display_name_compact: None,
             address: addr(
                 None,
                 None,
@@ -1849,6 +1948,69 @@ mod tests {
         // Verify the embedded dataset loads without panic
         let result = CountryBoundaries::from_reader(BOUNDARIES_ODBL_360X180);
         assert!(result.is_ok(), "dataset should load: {:?}", result.err());
+    }
+
+    // --- format_address_compact tests ---
+
+    #[test]
+    fn format_address_compact_replaces_country_with_code() {
+        let a = addr(
+            Some("5"),
+            Some("Rue de l'Évêque"),
+            Some("Bruxelles"),
+            None,
+            None,
+            Some("1000"),
+            Some("België / Belgique / Belgien"),
+            Some("BE"),
+        );
+        let full = format_address(&a).unwrap();
+        let compact = format_address_compact(&a).unwrap();
+        assert!(full.ends_with("België / Belgique / Belgien"));
+        assert!(compact.ends_with(", BE"));
+        assert_eq!(compact, "Rue de l'Évêque 5, 1000 Bruxelles, BE");
+        assert!(compact.len() < full.len());
+    }
+
+    #[test]
+    fn format_address_compact_us_style() {
+        let a = addr(
+            Some("1600"),
+            Some("Pennsylvania Avenue"),
+            Some("Washington"),
+            Some("DC"),
+            None,
+            Some("20500"),
+            Some("United States of America"),
+            Some("US"),
+        );
+        let compact = format_address_compact(&a).unwrap();
+        assert_eq!(
+            compact,
+            "1600 Pennsylvania Avenue, Washington, DC 20500, US"
+        );
+    }
+
+    #[test]
+    fn format_address_compact_no_country_code_returns_none() {
+        let a = addr(None, None, None, None, None, None, None, None);
+        assert_eq!(format_address_compact(&a), None);
+    }
+
+    #[test]
+    fn format_address_compact_only_country_code() {
+        let a = addr(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("France"),
+            Some("FR"),
+        );
+        let compact = format_address_compact(&a).unwrap();
+        assert_eq!(compact, "FR");
     }
 
     // --- Geometry analysis tests (Items 1, 3, 5) ---
