@@ -1,16 +1,16 @@
-Traccar Geocoder
-Copyright 2024 Traccar Ltd
-https://github.com/traccar/traccar-geocoder
-
-This product includes software developed by Traccar Ltd.
+Nomirevturbo
+Copyright 2026 Glenn Plas (https://github.com/gplv2) / Bitless BVBA
 
 Licensed under the Apache License, Version 2.0.
 
 ================================================================================
 
-This fork contains substantial modifications by Glenn Plas (https://github.com/gplv2).
-Original source: https://github.com/traccar/traccar-geocoder
+This product includes software originally developed by Traccar Ltd.
+Original: https://github.com/traccar/traccar-geocoder (Apache 2.0)
+Traccar Ltd copyright 2024.
 Fork point: commit 6feb14e (2026-03-24)
+
+================================================================================
 
 Changes from the original:
 

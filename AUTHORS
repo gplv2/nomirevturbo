@@ -1,0 +1,9 @@
+Glenn Plas glenn@bitless.be - Bitless BV
+  - Flat pair vector optimization (49x planet build speedup)
+  - Pass 1.5 node bitmap filtering (89% node skip rate)
+  - Three-tier S2 polygon repair pipeline
+  - Write-phase memory optimization
+  - Planet build: 44h 46m → 54m 38s, 94GB+swap → 25GB zero swap
+
+Original codebase: Traccar traccar-geocoder (Apache 2.0)
+  https://github.com/traccar/traccar-geocoder
